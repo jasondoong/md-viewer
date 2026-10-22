@@ -1,0 +1,94 @@
+import SwiftUI
+
+@main
+struct MDPreviewApp: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+        }
+        .defaultSize(width: 1200, height: 800)
+        .commands {
+            SidebarCommands()
+            WorkspaceCommands()
+        }
+    }
+}
+
+// MARK: - Focused value so menu commands talk to the active window's workspace
+
+struct WorkspaceFocusedKey: FocusedValueKey {
+    typealias Value = Workspace
+}
+
+extension FocusedValues {
+    var workspace: Workspace? {
+        get { self[WorkspaceFocusedKey.self] }
+        set { self[WorkspaceFocusedKey.self] = newValue }
+    }
+}
+
+// MARK: - Menu commands
+
+struct WorkspaceCommands: Commands {
+    @FocusedValue(\.workspace) private var workspace
+    @AppStorage(AppearanceMode.storageKey) private var appearance: AppearanceMode = .system
+
+    var body: some Commands {
+        // ⌘P is used for Quick Open.
+        CommandGroup(replacing: .printItem) {}
+
+        CommandGroup(after: .newItem) {
+            Button("Open Folder…") { workspace?.chooseFolder() }
+                .keyboardShortcut("o")
+                .disabled(workspace == nil)
+
+            Button("Quick Open…") {
+                if workspace?.rootURL != nil { workspace?.showQuickOpen = true }
+            }
+                .keyboardShortcut("p")
+                .disabled(workspace == nil)
+        }
+
+        CommandMenu("Navigate") {
+            Button("Next File") { workspace?.selectAdjacent(1) }
+                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                .disabled(workspace == nil)
+
+            Button("Previous File") { workspace?.selectAdjacent(-1) }
+                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                .disabled(workspace == nil)
+
+            Divider()
+
+            Button("Reload") { workspace?.reloadAll() }
+                .keyboardShortcut("r")
+                .disabled(workspace == nil)
+
+            Button("Reveal in Finder") { workspace?.revealSelectionInFinder() }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .disabled(workspace == nil)
+
+            Button("Open in Default Editor") { workspace?.openSelectionExternally() }
+                .keyboardShortcut("e")
+                .disabled(workspace == nil)
+        }
+
+        CommandGroup(after: .toolbar) {
+            Button("Zoom In") { workspace?.zoom(by: 0.1) }
+                .keyboardShortcut("=")
+            Button("Zoom Out") { workspace?.zoom(by: -0.1) }
+                .keyboardShortcut("-")
+            Button("Actual Size") { workspace?.resetZoom() }
+                .keyboardShortcut("0")
+            Divider()
+            Menu("Appearance") {
+                AppearancePicker(selection: $appearance)
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+            }
+            Button("Cycle Appearance") { appearance = appearance.next }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+            Divider()
+        }
+    }
+}

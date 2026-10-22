@@ -1,0 +1,32 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  html, body { background: #0d1117; }
+}
+
+.markdown-body {
+  box-sizing: border-box;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 48px 64px;
+}
+
+/* Let github-markdown.css own the <pre> background instead of the hljs theme. */
+.markdown-body pre code.hljs {
+  background: transparent;
+  padding: 0;
+}
+
+.markdown-body .front-matter {
+  font-size: 85%;
+  opacity: 0.8;
+}
+
+.markdown-body .front-matter summary {
+  cursor: pointer;
+  margin-bottom: 8px;
+}
