@@ -2,10 +2,17 @@ import SwiftUI
 
 @main
 struct MDPreviewApp: App {
+    static let mainWindowID = "main"
+
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: Self.mainWindowID) {
             ContentView()
         }
+        // Files opened from Finder go through AppDelegate → OpenRequests into an existing
+        // window, instead of SwiftUI spawning a new window per file.
+        .handlesExternalEvents(matching: [])
         .defaultSize(width: 1200, height: 800)
         .commands {
             SidebarCommands()

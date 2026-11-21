@@ -5,6 +5,7 @@ struct ContentView: View {
     @State private var workspace = Workspace()
     @State private var isDropTargeted = false
     @AppStorage(AppearanceMode.storageKey) private var appearance: AppearanceMode = .system
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         NavigationSplitView {
@@ -59,6 +60,17 @@ struct ContentView: View {
         .focusedSceneValue(\.workspace, workspace)
         .onChange(of: appearance, initial: true) { _, mode in
             mode.apply()
+        }
+        .onChange(of: OpenRequests.shared.pending, initial: true) { _, urls in
+            guard !urls.isEmpty else { return }
+            _ = workspace.handleDrop(OpenRequests.shared.take())
+        }
+        .onAppear {
+            OpenRequests.shared.openWindow = openWindow
+            OpenRequests.shared.liveWindowCount += 1
+        }
+        .onDisappear {
+            OpenRequests.shared.liveWindowCount -= 1
         }
         .frame(minWidth: 760, minHeight: 480)
     }
