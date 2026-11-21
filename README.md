@@ -17,6 +17,21 @@ open MDPreview.xcodeproj   # 然後在 Xcode 按 ⌘R
 
 第一次執行後按 ⌘O 選 `Samples/` 資料夾就能測試所有功能。
 
+## 安裝與「打開檔案的應用程式」
+
+建議只保留一份 app 在「應用程式」資料夾，Spotlight 和 Finder 的「打開檔案的應用程式」才不會出現重複或抓到舊版：
+
+```bash
+./build.sh                # build 並安裝到 /Applications（--no-install 只 build 不安裝）
+```
+
+build 產物放在 `build.noindex/`，資料夾名稱結尾的 `.noindex` 讓 Spotlight 不收錄，所以不會出現第二份。
+Xcode 按 ⌘R 產生的 Debug 版在 `~/Library/Developer/Xcode/DerivedData/`，若它也出現在搜尋結果，
+可到「系統設定 → Spotlight → 搜尋隱私」把 DerivedData 資料夾加進去。
+
+之後在 .md 檔按右鍵 →「打開檔案的應用程式」就會看到 MD Preview；也可以把 .md 檔或資料夾拖到 Dock 上的圖示。
+開啟單一 .md 檔時，會打開它所在的資料夾並選取該檔。
+
 ## 功能與快捷鍵
 
 | 功能 | 操作 |
