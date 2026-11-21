@@ -1,5 +1,7 @@
 #!/bin/bash
-# Build a Release MDPreview.app into ./build/Release without opening Xcode.
+# Build MDPreview (Release) and install it to /Applications.
+#   ./build.sh               build + install to /Applications
+#   ./build.sh --no-install  build only (output in build.noindex/Release)
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -17,7 +19,25 @@ if ! xcodebuild -version >/dev/null 2>&1; then
     exit 1
   fi
 fi
-xcodebuild -project MDPreview.xcodeproj -target MDPreview -configuration Release SYMROOT="$PWD/build" build
+
+# ".noindex" keeps Spotlight / the Applications search from listing the build copy
+# as a second MDPreview next to the installed one.
+BUILD_DIR="$PWD/build.noindex"
+APP="$BUILD_DIR/Release/MDPreview.app"
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+
+xcodebuild -project MDPreview.xcodeproj -target MDPreview -configuration Release SYMROOT="$BUILD_DIR" build
+
+# Make sure Finder's "Open With" only knows about the installed copy.
+"$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
+
 echo
-echo "Built: $PWD/build/Release/MDPreview.app"
-echo "Install: cp -R build/Release/MDPreview.app /Applications/"
+if [ "${1:-}" = "--no-install" ]; then
+  echo "Built: $APP"
+  exit 0
+fi
+
+rm -rf /Applications/MDPreview.app
+cp -R "$APP" /Applications/
+"$LSREGISTER" -f /Applications/MDPreview.app
+echo "Installed: /Applications/MDPreview.app"
