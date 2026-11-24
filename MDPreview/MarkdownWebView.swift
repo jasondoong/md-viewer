@@ -154,11 +154,46 @@ final class ZoomScrollWebView: WKWebView {
     /// Invoked with a zoom step (positive = in, negative = out) on Ctrl + scroll-wheel.
     var onZoomBy: ((Double) -> Void)?
 
+    // Modifier state tracked from `flagsChanged` events, which fire reliably on key
+    // press/release. Per-scroll-event `modifierFlags` can lag on fast/momentum trackpad
+    // scrolls, so a held Ctrl sometimes looks "unpressed" — we don't trust it alone.
+    private var controlDown = false
+    private var shiftDown = false
+    private var modifierMonitor: Any?
+
+    override init(frame: NSRect, configuration: WKWebViewConfiguration) {
+        super.init(frame: frame, configuration: configuration)
+        startModifierTracking()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        startModifierTracking()
+    }
+
+    deinit {
+        if let modifierMonitor { NSEvent.removeMonitor(modifierMonitor) }
+    }
+
+    private func startModifierTracking() {
+        guard modifierMonitor == nil else { return }
+        modifierMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            self?.controlDown = event.modifierFlags.contains(.control)
+            self?.shiftDown = event.modifierFlags.contains(.shift)
+            return event
+        }
+    }
+
     override func scrollWheel(with event: NSEvent) {
-        let flags = event.modifierFlags
+        // Believe our tracked state first, but also fold in the event + global flags so we
+        // never miss a modifier that was just pressed in the same tick.
+        let flags = (event.modifierFlags.union(NSEvent.modifierFlags))
+            .intersection(.deviceIndependentFlagsMask)
+        let control = controlDown || flags.contains(.control)
+        let shift = shiftDown || flags.contains(.shift)
 
         // Control + wheel: zoom. Scroll up = in, scroll down = out.
-        if flags.contains(.control) {
+        if control {
             let dy = event.scrollingDeltaY
             guard dy != 0 else { return }
             onZoomBy?(dy > 0 ? 0.1 : -0.1)
@@ -167,7 +202,7 @@ final class ZoomScrollWebView: WKWebView {
 
         // Shift + wheel: horizontal scroll. Trackpads may already report an X delta;
         // a mouse reports it on Y, so fall back to that.
-        if flags.contains(.shift) {
+        if shift {
             let dx = event.scrollingDeltaX != 0 ? event.scrollingDeltaX : event.scrollingDeltaY
             guard dx != 0 else { return }
             evaluateJavaScript("window.scrollBy(\(dx), 0)", completionHandler: nil)
