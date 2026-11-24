@@ -110,7 +110,7 @@
     btnReset.title = "Reset";
     btnReset.addEventListener("click", (e) => { e.stopPropagation(); reset(); });
     controls.append(btnIn, btnOut, btnReset);
-    container.appendChild(controls);
+    container.insertBefore(controls, svg);  // Controls above the diagram
 
     // Shift + wheel: zoom (with passive: false so preventDefault works)
     container.addEventListener("wheel", (e) => {

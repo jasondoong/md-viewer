@@ -116,7 +116,8 @@ struct DetailView: View {
                     markdown: workspace.markdown,
                     version: workspace.renderVersion,
                     zoom: workspace.zoomLevel,
-                    onLinkClicked: { workspace.handleLink($0) }
+                    onLinkClicked: { workspace.handleLink($0) },
+                    onZoomBy: { workspace.zoom(by: $0) }
                 )
             }
         } else if workspace.isScanning {

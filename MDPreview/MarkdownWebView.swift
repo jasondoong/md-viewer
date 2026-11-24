@@ -12,37 +12,47 @@ struct MarkdownWebView: NSViewRepresentable {
     let version: Int
     let zoom: Double
     let onLinkClicked: (URL) -> Void
+    /// Called with a zoom step (±0.1) when the user does Ctrl + scroll-wheel, so the host
+    /// can update its persisted `zoomLevel`. Plain scroll scrolls natively; Shift scrolls horizontally.
+    let onZoomBy: (Double) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
     }
 
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> ZoomScrollWebView {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(context.coordinator.schemeHandler, forURLScheme: LocalSchemeHandler.scheme)
         config.userContentController.add(context.coordinator, name: "linkClicked")
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let webView = ZoomScrollWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.allowsMagnification = true
         // Let folder/file drops fall through to SwiftUI's .dropDestination instead of WebKit.
         webView.unregisterDraggedTypes()
         webView.pageZoom = zoom
+        // Ctrl + scroll-wheel reports a zoom step to the host's persisted zoomLevel.
+        webView.onZoomBy = { [weak coordinator = context.coordinator] delta in
+            coordinator?.onZoomBy?(delta)
+        }
         context.coordinator.webView = webView
 
         webView.load(URLRequest(url: LocalSchemeHandler.pageURL))
         return webView
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
+    func updateNSView(_ webView: ZoomScrollWebView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
         coordinator.schemeHandler.rootURL = rootURL
         if webView.pageZoom != zoom { webView.pageZoom = zoom }
+        coordinator.onZoomBy = { [weak coordinator] delta in
+            coordinator?.parent.onZoomBy(delta)
+        }
         coordinator.render(fileURL: fileURL, markdown: markdown, version: version)
     }
 
-    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+    static func dismantleNSView(_ webView: ZoomScrollWebView, coordinator: Coordinator) {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "linkClicked")
     }
 
@@ -52,6 +62,7 @@ struct MarkdownWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: MarkdownWebView
         weak var webView: WKWebView?
+        var onZoomBy: ((Double) -> Void)?
         let schemeHandler = LocalSchemeHandler()
 
         private var pageLoaded = false
@@ -129,6 +140,42 @@ struct MarkdownWebView: NSViewRepresentable {
                   let url = URL(string: string) else { return }
             parent.onLinkClicked(url)
         }
+    }
+}
+
+// MARK: - Scroll/zoom web view
+
+/// Routes scroll-wheel gestures by modifier key so the preview offers editor-like
+/// navigation without needing a trackpad:
+///   - plain wheel    → vertical scroll (WebKit-native, keeps momentum)
+///   - Shift + wheel  → horizontal scroll
+///   - Control + wheel→ zoom in/out (reported via `onZoomBy` to the host's zoomLevel)
+final class ZoomScrollWebView: WKWebView {
+    /// Invoked with a zoom step (positive = in, negative = out) on Ctrl + scroll-wheel.
+    var onZoomBy: ((Double) -> Void)?
+
+    override func scrollWheel(with event: NSEvent) {
+        let flags = event.modifierFlags
+
+        // Control + wheel: zoom. Scroll up = in, scroll down = out.
+        if flags.contains(.control) {
+            let dy = event.scrollingDeltaY
+            guard dy != 0 else { return }
+            onZoomBy?(dy > 0 ? 0.1 : -0.1)
+            return
+        }
+
+        // Shift + wheel: horizontal scroll. Trackpads may already report an X delta;
+        // a mouse reports it on Y, so fall back to that.
+        if flags.contains(.shift) {
+            let dx = event.scrollingDeltaX != 0 ? event.scrollingDeltaX : event.scrollingDeltaY
+            guard dx != 0 else { return }
+            evaluateJavaScript("window.scrollBy(\(dx), 0)", completionHandler: nil)
+            return
+        }
+
+        // Plain wheel: let WebKit scroll vertically natively.
+        super.scrollWheel(with: event)
     }
 }
 

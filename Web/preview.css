@@ -26,14 +26,16 @@ html, body {
 }
 .markdown-body .mermaid svg {
   pointer-events: none;
+  display: block;
+  margin: 0 auto;
   transition: transform 0.05s ease-out;
 }
 .markdown-body .mermaid-controls {
-  position: absolute;
-  top: 8px;
-  right: 8px;
   display: flex;
   gap: 4px;
+  justify-content: center;
+  margin-bottom: 6px;
+  position: relative;
   z-index: 10;
 }
 .markdown-body .mermaid-controls button {
