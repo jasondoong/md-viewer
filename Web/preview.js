@@ -6,11 +6,16 @@
 
   marked.use({ gfm: true, breaks: false });
 
+  const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  const isDark = () => darkQuery.matches;
+
   let mermaidReady = null;
   if (window.mermaid) {
-    mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: isDark() ? "dark" : "default" });
     mermaidReady = !!window.mermaid;
   }
+
+  let lastPayload = null;
 
   function slugify(text) {
     return text
@@ -82,22 +87,14 @@
 
   window.MDP = {
     render(payload) {
-      if (payload.base) baseEl.setAttribute("href", payload.base);
+      lastPayload = payload;
+      renderDocument(payload, payload.resetScroll);
+    },
 
-      const { frontMatter, body } = splitFrontMatter(payload.markdown || "");
-      let html = "";
-      if (frontMatter !== null) {
-        html += '<details class="front-matter"><summary>Front matter</summary><pre><code class="language-yaml">' +
-          escapeHTML(frontMatter) + "</code></pre></details>";
-      }
-      html += marked.parse(body);
-      content.innerHTML = html;
-
-      addHeadingIDs(content);
-      highlight(content);
-      renderMermaid(content);
-
-      if (payload.resetScroll) window.scrollTo(0, 0);
+    // Re-render the currently displayed document (used on theme change) without
+    // resetting the scroll position.
+    reRender() {
+      if (lastPayload) renderDocument(lastPayload, false);
     },
 
     // Used by the Windows host (macOS uses WKWebView.pageZoom instead).
@@ -105,6 +102,33 @@
       document.documentElement.style.zoom = String(factor);
     },
   };
+
+  function renderDocument(payload, resetScroll) {
+    if (payload.base) baseEl.setAttribute("href", payload.base);
+
+    const { frontMatter, body } = splitFrontMatter(payload.markdown || "");
+    let html = "";
+    if (frontMatter !== null) {
+      html += '<details class="front-matter"><summary>Front matter</summary><pre><code class="language-yaml">' +
+        escapeHTML(frontMatter) + "</code></pre></details>";
+    }
+    html += marked.parse(body);
+    content.innerHTML = html;
+
+    addHeadingIDs(content);
+    highlight(content);
+    renderMermaid(content);
+
+    if (resetScroll) window.scrollTo(0, 0);
+  }
+
+  // Re-render the current document when the system switches light/dark so the
+  // Mermaid theme can be updated, keeping the current scroll position.
+  darkQuery.addEventListener("change", () => {
+    if (!mermaidReady || !lastPayload) return;
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: isDark() ? "dark" : "default" });
+    window.MDP.reRender();
+  });
 
   // Windows only: a focused WebView2 swallows keystrokes, so forward app shortcuts to the host.
   if (window.chrome && window.chrome.webview) {
