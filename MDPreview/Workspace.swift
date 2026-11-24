@@ -157,7 +157,11 @@ final class Workspace {
 
     private func loadContent(of url: URL) {
         do {
-            markdown = try FileScanner.readText(url)
+            var text = try FileScanner.readText(url)
+            if FileScanner.mermaidExtensions.contains(url.pathExtension.lowercased()) {
+                text = "```mermaid\n" + text + "\n```"
+            }
+            markdown = text
             loadError = nil
         } catch {
             markdown = ""

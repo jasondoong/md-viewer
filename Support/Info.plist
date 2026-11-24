@@ -56,6 +56,7 @@
 					<string>mdown</string>
 					<string>mkd</string>
 					<string>mkdn</string>
+					<string>mmd</string>
 				</array>
 				<key>public.mime-type</key>
 				<array>

@@ -97,7 +97,7 @@ struct DetailView: View {
                         .font(.title.weight(.semibold))
                 }
             } description: {
-                Text("Open a folder with ⌘O, or drag a folder or .md file here.")
+                Text("Open a folder with ⌘O, or drag a folder or .md / .mmd file here.")
             } actions: {
                 Button("Open Folder…") { workspace.chooseFolder() }
                     .buttonStyle(.borderedProminent)

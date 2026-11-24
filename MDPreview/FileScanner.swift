@@ -19,7 +19,8 @@ struct SidebarRow: Identifiable, Hashable {
 }
 
 enum FileScanner {
-    static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd", "mkdn", "mdx"]
+    static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd", "mkdn", "mdx", "mmd"]
+    static let mermaidExtensions: Set<String> = ["mmd"]
     static let skippedDirectories: Set<String> = ["node_modules", "DerivedData", "Pods", ".build", "build"]
     static let maxDepth = 16
 
