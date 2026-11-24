@@ -106,7 +106,7 @@ final class Workspace {
         }
         if FileScanner.isPreviewable(url) {
             let parent = url.deletingLastPathComponent()
-            if let rootURL, url.standardizedFileURL.path.hasPrefix(rootURL.path + "/") {
+            if let rootURL, isDescendant(url.standardizedFileURL.path, of: rootURL.path) {
                 select(url)
             } else {
                 open(folder: parent)
@@ -156,8 +156,21 @@ final class Workspace {
     }
 
     private func loadContent(of url: URL) {
+        let readURL: URL
+        if FileScanner.isJSON(url) {
+            let resolvedURL = url.resolvingSymlinksInPath()
+            guard let rootURL, isDescendant(resolvedURL.path, of: rootURL.resolvingSymlinksInPath().path) else {
+                markdown = ""
+                loadError = "該 JSON 檔案為指向目前資料夾外的符號連結，已拒絕讀取。"
+                renderVersion += 1
+                return
+            }
+            readURL = resolvedURL
+        } else {
+            readURL = url
+        }
         do {
-            var text = try FileScanner.readText(url)
+            var text = try FileScanner.readText(readURL)
             if FileScanner.mermaidExtensions.contains(url.pathExtension.lowercased()) {
                 text = "```mermaid\n" + text + "\n```"
             }
@@ -325,11 +338,13 @@ final class Workspace {
             guard url.host == LocalSchemeHandler.fileHost else { return }
             let fileURL = URL(fileURLWithPath: url.path(percentEncoded: false))
             guard FileManager.default.fileExists(atPath: fileURL.path) else { NSSound.beep(); return }
-            let insideRoot = rootURL.map { fileURL.standardizedFileURL.path.hasPrefix($0.path + "/") } ?? false
-            if FileScanner.isPreviewable(fileURL), insideRoot {
-                select(fileURL)
-            } else if isDirectory(fileURL) {
+            let insideRoot = rootURL.map { isDescendant(fileURL.standardizedFileURL.path, of: $0.path) } ?? false
+            // Resolve the actual directory first so a directory named `*.json` takes
+            // the Finder reveal branch instead of being treated as a previewable file.
+            if isDirectory(fileURL) {
                 NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+            } else if FileScanner.isPreviewable(fileURL), insideRoot {
+                select(fileURL)
             } else {
                 NSWorkspace.shared.open(fileURL)
             }
@@ -365,6 +380,11 @@ final class Workspace {
     private func isDirectory(_ url: URL) -> Bool {
         var isDir: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
+    }
+
+    private func isDescendant(_ path: String, of root: String) -> Bool {
+        let prefix = root.hasSuffix("/") ? root : root + "/"
+        return path != root && path.hasPrefix(prefix)
     }
 }
 
