@@ -154,64 +154,82 @@ final class ZoomScrollWebView: WKWebView {
     /// Invoked with a zoom step (positive = in, negative = out) on Ctrl + scroll-wheel.
     var onZoomBy: ((Double) -> Void)?
 
-    // Modifier state tracked from `flagsChanged` events, which fire reliably on key
-    // press/release. Per-scroll-event `modifierFlags` can lag on fast/momentum trackpad
-    // scrolls, so a held Ctrl sometimes looks "unpressed" — we don't trust it alone.
-    private var controlDown = false
-    private var shiftDown = false
-    private var modifierMonitor: Any?
-
-    override init(frame: NSRect, configuration: WKWebViewConfiguration) {
-        super.init(frame: frame, configuration: configuration)
-        startModifierTracking()
+    private enum ScrollMode {
+        case normal, horizontal, zoom
     }
 
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        startModifierTracking()
-    }
-
-    deinit {
-        if let modifierMonitor { NSEvent.removeMonitor(modifierMonitor) }
-    }
-
-    private func startModifierTracking() {
-        guard modifierMonitor == nil else { return }
-        modifierMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.controlDown = event.modifierFlags.contains(.control)
-            self?.shiftDown = event.modifierFlags.contains(.shift)
-            return event
-        }
-    }
+    // Remember the mode for momentum events, which may no longer carry modifier flags.
+    private var gestureMode: ScrollMode = .normal
+    private var zoomAccumulator = 0.0
 
     override func scrollWheel(with event: NSEvent) {
-        // Believe our tracked state first, but also fold in the event + global flags so we
-        // never miss a modifier that was just pressed in the same tick.
-        let flags = (event.modifierFlags.union(NSEvent.modifierFlags))
-            .intersection(.deviceIndependentFlagsMask)
-        let control = controlDown || flags.contains(.control)
-        let shift = shiftDown || flags.contains(.shift)
-
-        // Control + wheel: zoom. Scroll up = in, scroll down = out.
-        if control {
-            let dy = event.scrollingDeltaY
-            guard dy != 0 else { return }
-            onZoomBy?(dy > 0 ? 0.1 : -0.1)
-            return
+        if event.phase.contains(.began) {
+            gestureMode = .normal
+            zoomAccumulator = 0
         }
 
-        // Shift + wheel: horizontal scroll. Trackpads may already report an X delta;
-        // a mouse reports it on Y, so fall back to that.
-        if shift {
-            let dx = event.scrollingDeltaX != 0 ? event.scrollingDeltaX : event.scrollingDeltaY
-            guard dx != 0 else { return }
-            evaluateJavaScript("window.scrollBy(\(dx), 0)", completionHandler: nil)
-            return
+        let mode: ScrollMode
+        if !event.momentumPhase.isEmpty {
+            mode = gestureMode
+        } else if event.modifierFlags.contains(.control) {
+            mode = .zoom
+        } else if event.modifierFlags.contains(.shift) {
+            mode = .horizontal
+        } else {
+            mode = .normal
         }
 
-        // Plain wheel: let WebKit scroll vertically natively.
-        super.scrollWheel(with: event)
+        if event.momentumPhase.isEmpty {
+            if mode != gestureMode { zoomAccumulator = 0 }
+            gestureMode = mode
+        }
+
+        switch mode {
+        case .normal:
+            super.scrollWheel(with: event)
+        case .zoom:
+            // Do not continue zooming after the fingers leave the trackpad.
+            guard event.momentumPhase.isEmpty else { return }
+            let delta = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.scrollingDeltaX
+            guard delta != 0 else { return }
+            if event.hasPreciseScrollingDeltas {
+                zoomAccumulator += delta
+                let pointsPerStep = 20.0
+                let steps = Int(zoomAccumulator / pointsPerStep)
+                if steps != 0 {
+                    zoomAccumulator -= Double(steps) * pointsPerStep
+                    onZoomBy?(Double(steps) * 0.1)
+                }
+            } else {
+                onZoomBy?(delta > 0 ? 0.1 : -0.1)
+            }
+        case .horizontal:
+            let delta = event.scrollingDeltaX != 0 ? event.scrollingDeltaX : event.scrollingDeltaY
+            guard delta != 0 else { return }
+            // AppKit deltas describe content movement; DOM scroll offsets have the opposite sign.
+            // Non-precise mouse wheels report lines rather than points.
+            let distance = -delta * (event.hasPreciseScrollingDeltas ? 1 : 40) / pageZoom
+            let point = convert(event.locationInWindow, from: nil)
+            let x = point.x / pageZoom
+            let y = (isFlipped ? point.y : bounds.height - point.y) / pageZoom
+            evaluateJavaScript("""
+                (() => {
+                  let element = document.elementFromPoint(\(x), \(y));
+                  while (element && element !== document.documentElement) {
+                    const overflow = getComputedStyle(element).overflowX;
+                    if ((overflow === 'auto' || overflow === 'scroll') &&
+                        element.scrollWidth > element.clientWidth) {
+                      element.scrollLeft += \(distance);
+                      return;
+                    }
+                    element = element.parentElement;
+                  }
+                  window.scrollBy(\(distance), 0);
+                })();
+                """, completionHandler: nil)
+        }
     }
+
 }
 
 // MARK: - Custom URL scheme
