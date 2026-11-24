@@ -16,6 +16,25 @@
   }
 
   let lastPayload = null;
+  let activeDiagram = null;
+  const controls = document.createElement("div");
+  controls.className = "mermaid-controls";
+  controls.hidden = true;
+  for (const [label, title, action] of [
+    ["+", "Zoom in", "in"], ["−", "Zoom out", "out"], ["↺", "Reset", "reset"]
+  ]) {
+    const button = document.createElement("button");
+    button.textContent = label;
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.addEventListener("click", () => {
+      if (!activeDiagram) return;
+      if (action === "reset") activeDiagram._resetMermaid();
+      else activeDiagram._zoomMermaid(action === "in" ? 1 : -1);
+    });
+    controls.appendChild(button);
+  }
+  document.body.appendChild(controls);
 
   // Bumped on every renderDocument; stale in-flight Mermaid loops compare against
   // this to abort so a rapid document/theme change can't paint outdated output.
@@ -68,107 +87,77 @@
     const svg = container.querySelector("svg");
     if (!svg) return;
 
-    // State stored on the element so multiple diagrams are independent
-    const state = { scale: 1, panX: 0, panY: 0 };
-    container._mermaidState = state;
+    const viewport = document.createElement("div");
+    viewport.className = "mermaid-viewport";
+    container.insertBefore(viewport, svg);
+    viewport.appendChild(svg);
 
+    // Capture the fitted size before allowing the diagram to grow beyond its viewport.
+    const naturalWidth = parseFloat(svg.style.maxWidth) || svg.getBoundingClientRect().width;
+    const aspect = svg.viewBox.baseVal.height / svg.viewBox.baseVal.width || 1;
+    let scale = 1;
     function apply() {
-      svg.style.transformOrigin = "0 0";
-      svg.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+      const width = Math.min(naturalWidth, viewport.clientWidth) * scale;
+      svg.style.width = `${width}px`;
+      svg.style.height = `${width * aspect}px`;
     }
-
-    function zoom(delta, cx, cy) {
-      const rect = container.getBoundingClientRect();
-      const px = cx !== undefined ? cx - rect.left : rect.width / 2;
-      const py = cy !== undefined ? cy - rect.top : rect.height / 2;
-      const old = state.scale;
-      const factor = delta > 0 ? 1.15 : 1 / 1.15;
-      state.scale = Math.max(0.1, Math.min(10, state.scale * factor));
-      state.panX = px - (px - state.panX) * (state.scale / old);
-      state.panY = py - (py - state.panY) * (state.scale / old);
+    function zoom(steps, cx) {
+      const rect = viewport.getBoundingClientRect();
+      const anchor = cx === undefined ? rect.width / 2 : cx - rect.left;
+      const old = scale;
+      scale = Math.max(0.1, Math.min(10, scale * Math.pow(1.15, steps)));
+      const offset = viewport.scrollLeft + anchor;
       apply();
+      viewport.scrollLeft = offset * scale / old - anchor;
     }
-
     function reset() {
-      state.scale = 1; state.panX = 0; state.panY = 0;
+      scale = 1;
       apply();
+      viewport.scrollLeft = 0;
+      viewport.scrollTop = 0;
     }
+    container._zoomMermaid = zoom;
 
-    // Add zoom controls
-    const controls = document.createElement("div");
-    controls.className = "mermaid-controls";
-    const btnIn = document.createElement("button");
-    btnIn.textContent = "+";
-    btnIn.title = "Zoom in";
-    btnIn.addEventListener("click", (e) => { e.stopPropagation(); zoom(1); });
-    const btnOut = document.createElement("button");
-    btnOut.textContent = "\u2212";
-    btnOut.title = "Zoom out";
-    btnOut.addEventListener("click", (e) => { e.stopPropagation(); zoom(-1); });
-    const btnReset = document.createElement("button");
-    btnReset.textContent = "\u21BA";
-    btnReset.title = "Reset";
-    btnReset.addEventListener("click", (e) => { e.stopPropagation(); reset(); });
-    controls.append(btnIn, btnOut, btnReset);
-    container.insertBefore(controls, svg);  // Controls above the diagram
+    container._resetMermaid = reset;
+    if (!activeDiagram) activeDiagram = container;
+    controls.hidden = false;
+    viewport.addEventListener("pointerenter", () => { activeDiagram = container; });
+    viewport.addEventListener("pointerdown", () => { activeDiagram = container; });
+    apply();
+    new ResizeObserver(apply).observe(viewport);
 
-    // Shift + wheel: zoom (with passive: false so preventDefault works)
-    container.addEventListener("wheel", (e) => {
-      if (!e.shiftKey) return;
+    // Other hosts may deliver Ctrl-wheel directly to the page.
+    viewport.addEventListener("wheel", (e) => {
+      if (!e.ctrlKey) return;
       e.preventDefault();
-      zoom(e.deltaY < 0 ? 1 : -1, e.clientX, e.clientY);
+      zoom(e.deltaY < 0 ? 1 : -1, e.clientX);
     }, { passive: false });
 
-    // Pinch gesture on trackpad (ctrlKey + wheel is Firefox's pinch; Safari/WKWebView uses gesture events)
-    container.addEventListener("wheel", (e) => {
-      if (e.ctrlKey) {
-        e.preventDefault();
-        zoom(e.deltaY < 0 ? 1 : -1, e.clientX, e.clientY);
-      }
-    }, { passive: false });
-
-    // Drag to pan using pointer events
-    let panning = false, startX = 0, startY = 0, startPanX = 0, startPanY = 0;
-
-    container.addEventListener("pointerdown", (e) => {
-      // Ignore clicks on control buttons
-      if (e.target.closest(".mermaid-controls")) return;
-      if (e.button !== 0) return;
+    let panning = false, startX = 0, startY = 0, startScroll = 0, startScrollY = 0;
+    viewport.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || e.target !== viewport) return;
       e.preventDefault();
       panning = true;
       startX = e.clientX;
       startY = e.clientY;
-      startPanX = state.panX;
-      startPanY = state.panY;
-      container.classList.add("mermaid-panning");
-      container.setPointerCapture(e.pointerId);
+      startScroll = viewport.scrollLeft;
+      startScrollY = viewport.scrollTop;
+      viewport.classList.add("mermaid-panning");
+      viewport.setPointerCapture(e.pointerId);
     });
-
-    container.addEventListener("pointermove", (e) => {
+    viewport.addEventListener("pointermove", (e) => {
       if (!panning) return;
-      state.panX = startPanX + (e.clientX - startX);
-      state.panY = startPanY + (e.clientY - startY);
-      apply();
+      viewport.scrollLeft = startScroll - (e.clientX - startX);
+      viewport.scrollTop = startScrollY - (e.clientY - startY);
     });
-
-    container.addEventListener("pointerup", (e) => {
-      if (!panning) return;
+    function endPan() {
       panning = false;
-      container.classList.remove("mermaid-panning");
-      container.releasePointerCapture(e.pointerId);
-    });
+      viewport.classList.remove("mermaid-panning");
+    }
+    viewport.addEventListener("pointerup", endPan);
+    viewport.addEventListener("pointercancel", endPan);
+    viewport.addEventListener("dblclick", reset);
 
-    container.addEventListener("pointercancel", (e) => {
-      if (!panning) return;
-      panning = false;
-      container.classList.remove("mermaid-panning");
-    });
-
-    // Double-click to reset
-    container.addEventListener("dblclick", (e) => {
-      if (e.target.closest(".mermaid-controls")) return;
-      reset();
-    });
   }
 
   async function renderMermaid(root, generation) {
@@ -215,14 +204,30 @@
       if (lastPayload) renderDocument(lastPayload, false);
     },
 
+    zoomMermaidAt(x, y, steps) {
+      const element = document.elementFromPoint(x, y);
+      const diagram = element && (element.closest(".mermaid") || (controls.contains(element) && activeDiagram));
+      if (!diagram || !diagram._zoomMermaid) return false;
+      activeDiagram = diagram;
+      diagram._zoomMermaid(steps, controls.contains(element) ? undefined : x);
+      return true;
+    },
+
+    setControlScale(factor) {
+      controls.style.setProperty("--page-zoom", String(factor));
+    },
+
     // Used by the Windows host (macOS uses WKWebView.pageZoom instead).
     setZoom(factor) {
       document.documentElement.style.zoom = String(factor);
+      this.setControlScale(factor);
     },
   };
 
   function renderDocument(payload, resetScroll) {
     const generation = ++renderGeneration;
+    activeDiagram = null;
+    controls.hidden = true;
 
     if (payload.base) baseEl.setAttribute("href", payload.base);
 

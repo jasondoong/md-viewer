@@ -45,7 +45,10 @@ struct MarkdownWebView: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.parent = self
         coordinator.schemeHandler.rootURL = rootURL
-        if webView.pageZoom != zoom { webView.pageZoom = zoom }
+        if webView.pageZoom != zoom {
+            webView.pageZoom = zoom
+            webView.evaluateJavaScript("window.MDP?.setControlScale(\(zoom))", completionHandler: nil)
+        }
         coordinator.onZoomBy = { [weak coordinator] delta in
             coordinator?.parent.onZoomBy(delta)
         }
@@ -119,6 +122,7 @@ struct MarkdownWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             pageLoaded = true
+            webView.evaluateJavaScript("window.MDP?.setControlScale(\(webView.pageZoom))", completionHandler: nil)
             // Force a render after (re)load even if the version didn't change.
             renderedURL = nil
             renderedVersion = -1
@@ -162,6 +166,17 @@ final class ZoomScrollWebView: WKWebView {
     private var gestureMode: ScrollMode = .normal
     private var zoomAccumulator = 0.0
 
+    private func zoom(at event: NSEvent, steps: Int) {
+        let point = convert(event.locationInWindow, from: nil)
+        let x = point.x / pageZoom
+        let y = (isFlipped ? point.y : bounds.height - point.y) / pageZoom
+        evaluateJavaScript("window.MDP?.zoomMermaidAt(\(x), \(y), \(steps)) ?? false") { [weak self] result, _ in
+            if (result as? Bool) != true {
+                self?.onZoomBy?(Double(steps) * 0.1)
+            }
+        }
+    }
+
     override func scrollWheel(with event: NSEvent) {
         if event.phase.contains(.began) {
             gestureMode = .normal
@@ -198,10 +213,10 @@ final class ZoomScrollWebView: WKWebView {
                 let steps = Int(zoomAccumulator / pointsPerStep)
                 if steps != 0 {
                     zoomAccumulator -= Double(steps) * pointsPerStep
-                    onZoomBy?(Double(steps) * 0.1)
+                    zoom(at: event, steps: steps)
                 }
             } else {
-                onZoomBy?(delta > 0 ? 0.1 : -0.1)
+                zoom(at: event, steps: delta > 0 ? 1 : -1)
             }
         case .horizontal:
             let delta = event.scrollingDeltaX != 0 ? event.scrollingDeltaX : event.scrollingDeltaY

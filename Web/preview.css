@@ -18,27 +18,46 @@ html, body {
 /* Mermaid diagram zoom / pan */
 .markdown-body .mermaid {
   position: relative;
+  width: calc(100vw - 32px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+.markdown-body .mermaid-viewport {
+  max-height: 90vh;
+  overflow: auto;
   cursor: grab;
 }
-.markdown-body .mermaid.mermaid-panning {
+.markdown-body .mermaid-viewport::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.markdown-body .mermaid-viewport::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 5px;
+}
+.markdown-body .mermaid-viewport.mermaid-panning {
   cursor: grabbing;
   user-select: none;
 }
 .markdown-body .mermaid svg {
   pointer-events: none;
   display: block;
+  max-width: none !important;
   margin: 0 auto;
-  transition: transform 0.05s ease-out;
 }
-.markdown-body .mermaid-controls {
+.mermaid-controls {
+  --page-zoom: 1;
+  position: fixed;
+  right: calc(16px / var(--page-zoom));
+  bottom: calc(16px / var(--page-zoom));
   display: flex;
   gap: 4px;
-  justify-content: center;
-  margin-bottom: 6px;
-  position: relative;
-  z-index: 10;
+  z-index: 100;
+  transform: scale(calc(1 / var(--page-zoom)));
+  transform-origin: bottom right;
 }
-.markdown-body .mermaid-controls button {
+.mermaid-controls[hidden] { display: none; }
+.mermaid-controls button {
   width: 28px;
   height: 28px;
   border: 1px solid #ccc;
@@ -51,16 +70,16 @@ html, body {
   align-items: center;
   justify-content: center;
 }
-.markdown-body .mermaid-controls button:hover {
+.mermaid-controls button:hover {
   background: #f0f0f0;
 }
 @media (prefers-color-scheme: dark) {
-  .markdown-body .mermaid-controls button {
+  .mermaid-controls button {
     background: #21262d;
     border-color: #444;
     color: #fff;
   }
-  .markdown-body .mermaid-controls button:hover {
+  .mermaid-controls button:hover {
     background: #30363d;
   }
 }
