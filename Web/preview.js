@@ -68,57 +68,107 @@
     const svg = container.querySelector("svg");
     if (!svg) return;
 
-    let scale = 1, panX = 0, panY = 0;
+    // State stored on the element so multiple diagrams are independent
+    const state = { scale: 1, panX: 0, panY: 0 };
+    container._mermaidState = state;
 
     function apply() {
       svg.style.transformOrigin = "0 0";
-      svg.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+      svg.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+    }
+
+    function zoom(delta, cx, cy) {
+      const rect = container.getBoundingClientRect();
+      const px = cx !== undefined ? cx - rect.left : rect.width / 2;
+      const py = cy !== undefined ? cy - rect.top : rect.height / 2;
+      const old = state.scale;
+      const factor = delta > 0 ? 1.15 : 1 / 1.15;
+      state.scale = Math.max(0.1, Math.min(10, state.scale * factor));
+      state.panX = px - (px - state.panX) * (state.scale / old);
+      state.panY = py - (py - state.panY) * (state.scale / old);
+      apply();
     }
 
     function reset() {
-      scale = 1; panX = 0; panY = 0;
+      state.scale = 1; state.panX = 0; state.panY = 0;
       apply();
     }
 
-    // Shift + wheel: zoom centered on cursor
+    // Add zoom controls
+    const controls = document.createElement("div");
+    controls.className = "mermaid-controls";
+    const btnIn = document.createElement("button");
+    btnIn.textContent = "+";
+    btnIn.title = "Zoom in";
+    btnIn.addEventListener("click", (e) => { e.stopPropagation(); zoom(1); });
+    const btnOut = document.createElement("button");
+    btnOut.textContent = "\u2212";
+    btnOut.title = "Zoom out";
+    btnOut.addEventListener("click", (e) => { e.stopPropagation(); zoom(-1); });
+    const btnReset = document.createElement("button");
+    btnReset.textContent = "\u21BA";
+    btnReset.title = "Reset";
+    btnReset.addEventListener("click", (e) => { e.stopPropagation(); reset(); });
+    controls.append(btnIn, btnOut, btnReset);
+    container.appendChild(controls);
+
+    // Shift + wheel: zoom (with passive: false so preventDefault works)
     container.addEventListener("wheel", (e) => {
       if (!e.shiftKey) return;
       e.preventDefault();
-      const rect = container.getBoundingClientRect();
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
-      const old = scale;
-      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-      scale = Math.max(0.1, Math.min(10, scale * factor));
-      panX = cx - (cx - panX) * (scale / old);
-      panY = cy - (cy - panY) * (scale / old);
-      apply();
+      zoom(e.deltaY < 0 ? 1 : -1, e.clientX, e.clientY);
     }, { passive: false });
 
-    // Drag to pan
-    container.addEventListener("mousedown", (e) => {
+    // Pinch gesture on trackpad (ctrlKey + wheel is Firefox's pinch; Safari/WKWebView uses gesture events)
+    container.addEventListener("wheel", (e) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        zoom(e.deltaY < 0 ? 1 : -1, e.clientX, e.clientY);
+      }
+    }, { passive: false });
+
+    // Drag to pan using pointer events
+    let panning = false, startX = 0, startY = 0, startPanX = 0, startPanY = 0;
+
+    container.addEventListener("pointerdown", (e) => {
+      // Ignore clicks on control buttons
+      if (e.target.closest(".mermaid-controls")) return;
       if (e.button !== 0) return;
       e.preventDefault();
-      const sx = e.clientX, sy = e.clientY;
-      const spx = panX, spy = panY;
+      panning = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      startPanX = state.panX;
+      startPanY = state.panY;
       container.classList.add("mermaid-panning");
-
-      function onMove(ev) {
-        panX = spx + (ev.clientX - sx);
-        panY = spy + (ev.clientY - sy);
-        apply();
-      }
-      function onUp() {
-        container.classList.remove("mermaid-panning");
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-      }
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
+      container.setPointerCapture(e.pointerId);
     });
 
-    // Double-click to reset zoom & pan
-    container.addEventListener("dblclick", reset);
+    container.addEventListener("pointermove", (e) => {
+      if (!panning) return;
+      state.panX = startPanX + (e.clientX - startX);
+      state.panY = startPanY + (e.clientY - startY);
+      apply();
+    });
+
+    container.addEventListener("pointerup", (e) => {
+      if (!panning) return;
+      panning = false;
+      container.classList.remove("mermaid-panning");
+      container.releasePointerCapture(e.pointerId);
+    });
+
+    container.addEventListener("pointercancel", (e) => {
+      if (!panning) return;
+      panning = false;
+      container.classList.remove("mermaid-panning");
+    });
+
+    // Double-click to reset
+    container.addEventListener("dblclick", (e) => {
+      if (e.target.closest(".mermaid-controls")) return;
+      reset();
+    });
   }
 
   async function renderMermaid(root, generation) {

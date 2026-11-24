@@ -17,13 +17,50 @@ html, body {
 
 /* Mermaid diagram zoom / pan */
 .markdown-body .mermaid {
-  overflow: hidden;
-  cursor: grab;
   position: relative;
+  cursor: grab;
 }
 .markdown-body .mermaid.mermaid-panning {
   cursor: grabbing;
   user-select: none;
+}
+.markdown-body .mermaid svg {
+  pointer-events: none;
+  transition: transform 0.05s ease-out;
+}
+.markdown-body .mermaid-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  z-index: 10;
+}
+.markdown-body .mermaid-controls button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.markdown-body .mermaid-controls button:hover {
+  background: #f0f0f0;
+}
+@media (prefers-color-scheme: dark) {
+  .markdown-body .mermaid-controls button {
+    background: #21262d;
+    border-color: #444;
+    color: #fff;
+  }
+  .markdown-body .mermaid-controls button:hover {
+    background: #30363d;
+  }
 }
 
 /* Let github-markdown.css own the <pre> background instead of the hljs theme. */
