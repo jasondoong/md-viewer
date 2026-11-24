@@ -6,6 +6,12 @@
 
   marked.use({ gfm: true, breaks: false });
 
+  let mermaidReady = null;
+  if (window.mermaid) {
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
+    mermaidReady = !!window.mermaid;
+  }
+
   function slugify(text) {
     return text
       .trim()
@@ -41,8 +47,29 @@
 
   function highlight(root) {
     root.querySelectorAll("pre code").forEach((el) => {
+      if (el.classList.contains("language-mermaid")) return;
       try { hljs.highlightElement(el); } catch (e) { /* unknown language etc. */ }
     });
+  }
+
+  async function renderMermaid(root) {
+    if (!mermaidReady) return;
+    const blocks = Array.from(root.querySelectorAll("pre code.language-mermaid"));
+    if (!blocks.length) return;
+    let i = 0;
+    for (const code of blocks) {
+      const pre = code.parentElement;
+      const id = "mermaid-" + Date.now() + "-" + i++; // unique per render
+      try {
+        const { svg } = await mermaid.render(id, code.textContent);
+        const wrap = document.createElement("div");
+        wrap.className = "mermaid";
+        wrap.innerHTML = svg;
+        pre.replaceWith(wrap);
+      } catch (e) {
+        // keep original block on failure
+      }
+    }
   }
 
   window.MDP = {
@@ -60,6 +87,7 @@
 
       addHeadingIDs(content);
       highlight(content);
+      renderMermaid(content);
 
       if (payload.resetScroll) window.scrollTo(0, 0);
     },
