@@ -103,7 +103,15 @@ struct DetailView: View {
                     .buttonStyle(.borderedProminent)
             }
         } else if let selection = workspace.selection {
-            if let error = workspace.loadError {
+            // An oversized JSON file is shown as its own prompt (with the actual size and
+            // limit) so it is distinguishable from a generic read error below.
+            if let oversize = workspace.jsonSizeLimitExceeded {
+                ContentUnavailableView(
+                    "JSON File Too Large",
+                    systemImage: "exclamationmark.triangle.fill",
+                    description: Text(oversize.message)
+                )
+            } else if let error = workspace.loadError {
                 ContentUnavailableView(
                     "Can't Read File",
                     systemImage: "exclamationmark.triangle",

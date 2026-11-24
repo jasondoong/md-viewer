@@ -46,6 +46,20 @@ final class Workspace {
     struct JSONSizeLimitInfo: Equatable {
         let actualSize: Int
         let limit: Int
+
+        /// A human-readable "actual / limit" pair, e.g. "50.0 MiB / 50.0 MiB". Uses a
+        /// deterministic 1024-based formatter so the size/limit shown in the UI are stable
+        /// (and testable) regardless of locale.
+        var sizeSummary: String {
+            "\(ByteFormat.humanReadableBytes(actualSize)) / \(ByteFormat.humanReadableBytes(limit))"
+        }
+
+        /// The full prompt shown when a JSON file is too large to read. It states both the
+        /// actual size and the limit so the user can tell an oversized file apart from a
+        /// generic read error (which goes through `loadError` instead).
+        var message: String {
+            "JSON 檔案過大（\(sizeSummary)；\(actualSize) / \(limit) 位元組），超過上限，為避免載入超大檔案未讀取全文。"
+        }
     }
 
     /// The kind of the current selection. `nil` when nothing is selected; even when the
@@ -438,6 +452,26 @@ final class Workspace {
     private func isDescendant(_ path: String, of root: String) -> Bool {
         let prefix = root.hasSuffix("/") ? root : root + "/"
         return path != root && path.hasPrefix(prefix)
+    }
+}
+
+/// A non-isolated helper so the byte-count formatting used by the oversized-JSON prompt
+/// can be called synchronously from `JSONSizeLimitInfo` (which lives inside the `@MainActor`
+/// `Workspace`).
+enum ByteFormat {
+    /// Human-readable byte count using 1024-based units (B, KiB, MiB, GiB, TiB). Deterministic
+    /// and locale-independent so the size/limit shown in the UI are stable (and testable).
+    /// Whole bytes are shown exactly; larger units keep one fractional digit.
+    static func humanReadableBytes(_ bytes: Int) -> String {
+        let units = ["B", "KiB", "MiB", "GiB", "TiB"]
+        var value = Double(bytes)
+        var index = 0
+        while value >= 1024, index < units.count - 1 {
+            value /= 1024
+            index += 1
+        }
+        if index == 0 { return "\(bytes) B" }
+        return String(format: "%.1f %@", value, units[index])
     }
 }
 
