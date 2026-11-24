@@ -9,6 +9,13 @@ struct MarkdownWebView: NSViewRepresentable {
     let fileURL: URL
     let rootURL: URL?
     let markdown: String
+    /// The current document kind (`.markdown` or `.json`). The same `markdown` field
+    /// carries the raw content for both kinds; the web layer routes JSON to its own
+    /// branch and Markdown to the marked pipeline.
+    let documentKind: Workspace.DocumentKind?
+    /// The document identity sent to the web layer ("file:" + path). A change to this
+    /// string resets the scroll position; the same identity with a new version keeps it.
+    let documentID: Workspace.DocumentID?
     let version: Int
     let zoom: Double
     let onLinkClicked: (URL) -> Void
@@ -52,7 +59,13 @@ struct MarkdownWebView: NSViewRepresentable {
         coordinator.onZoomBy = { [weak coordinator] delta in
             coordinator?.parent.onZoomBy(delta)
         }
-        coordinator.render(fileURL: fileURL, markdown: markdown, version: version)
+        coordinator.render(
+            fileURL: fileURL,
+            markdown: markdown,
+            documentKind: documentKind,
+            documentID: documentID,
+            version: version
+        )
     }
 
     static func dismantleNSView(_ webView: ZoomScrollWebView, coordinator: Coordinator) {
@@ -69,8 +82,8 @@ struct MarkdownWebView: NSViewRepresentable {
         let schemeHandler = LocalSchemeHandler()
 
         private var pageLoaded = false
-        private var pending: (url: URL, markdown: String, version: Int)?
-        private var renderedURL: URL?
+        private var pending: (url: URL, markdown: String, kind: Workspace.DocumentKind?, id: Workspace.DocumentID?, version: Int)?
+        private var renderedDocumentID: String?
         private var renderedVersion = -1
 
         init(parent: MarkdownWebView) {
@@ -79,25 +92,40 @@ struct MarkdownWebView: NSViewRepresentable {
             schemeHandler.rootURL = parent.rootURL
         }
 
-        func render(fileURL: URL, markdown: String, version: Int) {
-            pending = (fileURL, markdown, version)
+        func render(fileURL: URL, markdown: String, documentKind: Workspace.DocumentKind?, documentID: Workspace.DocumentID?, version: Int) {
+            pending = (fileURL, markdown, documentKind, documentID, version)
             flush()
         }
 
         private func flush() {
             guard pageLoaded, let webView, let job = pending else { return }
             pending = nil
-            guard job.url != renderedURL || job.version != renderedVersion else { return }
-
-            let isNewFile = job.url != renderedURL
-            renderedURL = job.url
+            // Identity (documentID) drives both the dedup and the scroll reset: a new
+            // identity resets scroll; the same identity re-rendered (version bump) keeps
+            // the position. Falls back to nil when no document is selected.
+            let id = job.id?.payloadString
+            guard id != renderedDocumentID || job.version != renderedVersion else { return }
+            let isNewIdentity = id != renderedDocumentID
+            renderedDocumentID = id
             renderedVersion = job.version
 
-            let payload: [String: Any] = [
-                "markdown": job.markdown,
+            // Keep the legacy web payload fields (base / resetScroll / markdown) and add
+            // the new kind + documentID + json fields. Web with an old payload (no kind)
+            // takes the Markdown path, so this stays backward compatible.
+            let kind = (job.kind == .json) ? "json" : "markdown"
+            var payload: [String: Any] = [
+                "kind": kind,
                 "base": LocalSchemeHandler.baseURL(forDirectoryOf: job.url),
-                "resetScroll": isNewFile,
+                "resetScroll": isNewIdentity,
             ]
+            if let id {
+                payload["documentID"] = id
+            }
+            if kind == "json" {
+                payload["json"] = job.markdown
+            } else {
+                payload["markdown"] = job.markdown
+            }
             guard let data = try? JSONSerialization.data(withJSONObject: payload),
                   let json = String(data: data, encoding: .utf8) else { return }
             webView.evaluateJavaScript("window.MDP.render(\(json));") { _, error in
@@ -124,10 +152,16 @@ struct MarkdownWebView: NSViewRepresentable {
             pageLoaded = true
             webView.evaluateJavaScript("window.MDP?.setControlScale(\(webView.pageZoom))", completionHandler: nil)
             // Force a render after (re)load even if the version didn't change.
-            renderedURL = nil
+            renderedDocumentID = nil
             renderedVersion = -1
             if pending == nil {
-                pending = (parent.fileURL, parent.markdown, parent.version)
+                pending = (
+                    parent.fileURL,
+                    parent.markdown,
+                    parent.documentKind,
+                    parent.documentID,
+                    parent.version
+                )
             }
             flush()
         }

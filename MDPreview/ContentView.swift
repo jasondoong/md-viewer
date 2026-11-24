@@ -122,6 +122,8 @@ struct DetailView: View {
                     fileURL: selection,
                     rootURL: workspace.rootURL,
                     markdown: workspace.markdown,
+                    documentKind: workspace.documentKind,
+                    documentID: workspace.documentID,
                     version: workspace.renderVersion,
                     zoom: workspace.zoomLevel,
                     onLinkClicked: { workspace.handleLink($0) },

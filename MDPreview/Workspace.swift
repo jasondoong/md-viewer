@@ -38,6 +38,18 @@ final class Workspace {
     /// symlink location the user selected rather than resolving it.
     enum DocumentID: Hashable {
         case file(path: String)
+
+        /// The identity string sent to the web layer. A file document encodes as
+        /// "file:" + the standardized selection path; a pasted document (added later)
+        /// will encode as "paste:" + a UUID. This is the identity the web layer uses to
+        /// decide when to reset the scroll position (on an identity change) versus keep
+        /// the position (same identity, content re-rendered).
+        var payloadString: String {
+            switch self {
+            case let .file(path):
+                return "file:" + path
+            }
+        }
     }
 
     /// When the current selection is a JSON file that exceeds `FileScanner.jsonSizeLimit`,

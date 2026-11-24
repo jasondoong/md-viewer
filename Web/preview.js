@@ -243,6 +243,21 @@
 
     if (payload.base) baseEl.setAttribute("href", payload.base);
 
+    // JSON branch: render the raw text with a text node only. It is NEVER passed to
+    // marked, innerHTML, or the Markdown link/URL pipeline, so its content cannot be
+    // executed or interpreted as HTML. Bumping `renderGeneration` (done above) also
+    // aborts any in-flight Mermaid render from the previous document. A later step
+    // will replace this placeholder with the tree view.
+    if (payload.kind === "json") {
+      const pre = document.createElement("pre");
+      pre.className = "json-preview";
+      pre.textContent = payload.json || "";
+      content.textContent = "";
+      content.appendChild(pre);
+      if (resetScroll) window.scrollTo(0, 0);
+      return;
+    }
+
     const { frontMatter, body } = splitFrontMatter(payload.markdown || "");
     let html = "";
     if (frontMatter !== null) {
