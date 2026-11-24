@@ -67,7 +67,15 @@
         wrap.innerHTML = svg;
         pre.replaceWith(wrap);
       } catch (e) {
-        // keep original block on failure
+        // Keep the original source visible; surface a readable Mermaid error above it.
+        const errEl = document.createElement("div");
+        errEl.className = "mermaid-error";
+        const msg = (e && (e.message || e.str)) || String(e);
+        errEl.textContent = "Mermaid error: " + msg;
+        // Mermaid may have left a temporary element in the DOM; remove it.
+        const leftover = document.getElementById(id);
+        if (leftover && leftover.parentNode) leftover.parentNode.removeChild(leftover);
+        if (pre.parentNode) pre.parentNode.insertBefore(errEl, pre);
       }
     }
   }
