@@ -101,14 +101,25 @@
       svg.style.width = `${width}px`;
       svg.style.height = `${width * aspect}px`;
     }
-    function zoom(steps, cx) {
-      const rect = viewport.getBoundingClientRect();
-      const anchor = cx === undefined ? rect.width / 2 : cx - rect.left;
-      const old = scale;
+    function zoom(steps, cx, cy) {
+      const viewportRect = viewport.getBoundingClientRect();
+      const x = cx === undefined ? viewportRect.left + viewportRect.width / 2 : cx;
+      const y = cy === undefined ? viewportRect.top + viewportRect.height / 2 : cy;
+      const before = svg.getBoundingClientRect();
+      if (!before.width || !before.height) return;
+      // Track the point in SVG coordinates, including any centering margin.
+      const svgX = (x - before.left) / before.width;
+      const svgY = (y - before.top) / before.height;
       scale = Math.max(0.1, Math.min(10, scale * Math.pow(1.15, steps)));
-      const offset = viewport.scrollLeft + anchor;
       apply();
-      viewport.scrollLeft = offset * scale / old - anchor;
+      const after = svg.getBoundingClientRect();
+      viewport.scrollLeft += after.left + svgX * after.width - x;
+      viewport.scrollTop += after.top + svgY * after.height - y;
+
+      // When the viewport itself grows or shrinks, its contents may reach a scroll
+      // boundary. Adjust the document too, where possible, to retain the anchor.
+      const adjusted = svg.getBoundingClientRect();
+      window.scrollBy(0, adjusted.top + svgY * adjusted.height - y);
     }
     function reset() {
       scale = 1;
@@ -130,7 +141,7 @@
     viewport.addEventListener("wheel", (e) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
-      zoom(e.deltaY < 0 ? 1 : -1, e.clientX);
+      zoom(e.deltaY < 0 ? 1 : -1, e.clientX, e.clientY);
     }, { passive: false });
 
     let panning = false, startX = 0, startY = 0, startScroll = 0, startScrollY = 0;
@@ -209,7 +220,8 @@
       const diagram = element && (element.closest(".mermaid") || (controls.contains(element) && activeDiagram));
       if (!diagram || !diagram._zoomMermaid) return false;
       activeDiagram = diagram;
-      diagram._zoomMermaid(steps, controls.contains(element) ? undefined : x);
+      diagram._zoomMermaid(steps, controls.contains(element) ? undefined : x,
+                           controls.contains(element) ? undefined : y);
       return true;
     },
 
