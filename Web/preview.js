@@ -64,6 +64,63 @@
     });
   }
 
+  function setupMermaidInteraction(container) {
+    const svg = container.querySelector("svg");
+    if (!svg) return;
+
+    let scale = 1, panX = 0, panY = 0;
+
+    function apply() {
+      svg.style.transformOrigin = "0 0";
+      svg.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    }
+
+    function reset() {
+      scale = 1; panX = 0; panY = 0;
+      apply();
+    }
+
+    // Shift + wheel: zoom centered on cursor
+    container.addEventListener("wheel", (e) => {
+      if (!e.shiftKey) return;
+      e.preventDefault();
+      const rect = container.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const old = scale;
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      scale = Math.max(0.1, Math.min(10, scale * factor));
+      panX = cx - (cx - panX) * (scale / old);
+      panY = cy - (cy - panY) * (scale / old);
+      apply();
+    }, { passive: false });
+
+    // Drag to pan
+    container.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const sx = e.clientX, sy = e.clientY;
+      const spx = panX, spy = panY;
+      container.classList.add("mermaid-panning");
+
+      function onMove(ev) {
+        panX = spx + (ev.clientX - sx);
+        panY = spy + (ev.clientY - sy);
+        apply();
+      }
+      function onUp() {
+        container.classList.remove("mermaid-panning");
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      }
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    });
+
+    // Double-click to reset zoom & pan
+    container.addEventListener("dblclick", reset);
+  }
+
   async function renderMermaid(root, generation) {
     if (!mermaidReady) return;
     const blocks = Array.from(root.querySelectorAll("pre code.language-mermaid"));
@@ -81,6 +138,7 @@
         wrap.className = "mermaid";
         wrap.innerHTML = svg;
         pre.replaceWith(wrap);
+        setupMermaidInteraction(wrap);
       } catch (e) {
         // Keep the original source visible; surface a readable Mermaid error above it.
         const errEl = document.createElement("div");

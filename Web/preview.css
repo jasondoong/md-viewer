@@ -15,6 +15,17 @@ html, body {
   padding: 32px 48px 64px;
 }
 
+/* Mermaid diagram zoom / pan */
+.markdown-body .mermaid {
+  overflow: hidden;
+  cursor: grab;
+  position: relative;
+}
+.markdown-body .mermaid.mermaid-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
 /* Let github-markdown.css own the <pre> background instead of the hljs theme. */
 .markdown-body pre code.hljs {
   background: transparent;
