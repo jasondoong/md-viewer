@@ -21,6 +21,7 @@ struct SidebarRow: Identifiable, Hashable {
 enum FileScanner {
     static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd", "mkdn", "mdx", "mmd"]
     static let mermaidExtensions: Set<String> = ["mmd"]
+    static let jsonExtensions: Set<String> = ["json"]
     static let skippedDirectories: Set<String> = ["node_modules", "DerivedData", "Pods", ".build", "build"]
     static let maxDepth = 16
 
@@ -28,9 +29,19 @@ enum FileScanner {
         markdownExtensions.contains(url.pathExtension.lowercased())
     }
 
+    /// JSON files (case-insensitive on the extension), e.g. `.json` / `.JSON`.
+    static func isJSON(_ url: URL) -> Bool {
+        jsonExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    /// Any file type the preview can open: Markdown/Mermaid or JSON.
+    static func isPreviewable(_ url: URL) -> Bool {
+        isMarkdown(url) || isJSON(url)
+    }
+
     struct Result: Sendable {
         let tree: [FileNode]
-        /// Flat list of every markdown file, in sidebar (depth-first) order.
+        /// Flat list of every previewable file (Markdown/Mermaid or JSON), in sidebar (depth-first) order.
         let files: [URL]
     }
 
@@ -64,8 +75,8 @@ enum FileScanner {
                 if !children.isEmpty {
                     dirs.append(FileNode(url: item, name: item.lastPathComponent, children: children))
                 }
-            } else if !isDir && isMarkdown(item) {
-                // Symlinked markdown files are fine; symlinked directories are skipped to avoid cycles.
+            } else if !isDir && isPreviewable(item) {
+                // Symlinked previewable files are fine; symlinked directories are skipped to avoid cycles.
                 files.append(FileNode(url: item, name: item.lastPathComponent, children: nil))
             }
         }
