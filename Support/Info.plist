@@ -3,7 +3,17 @@
 <!--
   Merged with the Info.plist Xcode generates (GENERATE_INFOPLIST_FILE = YES).
   Declares the file types MD Preview can open, so it shows up in Finder's
-  "Open With" menu and accepts .md files / folders dropped on its Dock icon.
+  "Open With" menu and accepts markdown files / folders dropped on its Dock icon.
+
+  Why the extra per-extension types:
+  macOS maps a couple of markdown extensions (.md, .markdown) to the well-known
+  system type net.daringfireball.markdown, so one type declaration covers them.
+  But the rarer extensions (.mdown, .mkd, .mkdn, .mdx, .mmd) have no system type,
+  so Launch Services falls back to a private per-user "dynamic" type that our
+  net.daringfireball.markdown declaration never matches. The result: MD Preview
+  would not appear in the "Open With" menu for those files.
+  Giving each of those extensions its own imported UTI that MD Preview claims
+  makes the extension resolve to a real type, so the app shows up in "Open With".
 -->
 <plist version="1.0">
 <dict>
@@ -19,6 +29,68 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>net.daringfireball.markdown</string>
+			</array>
+		</dict>
+		<!-- Rarer extensions that macOS does not map to a system type. Each gets its
+			 own claimer so the file's type resolves to something MD Preview declares. -->
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Markdown Document (.mdown)</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.dakastar.markdown.mdown</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Markdown Document (.mkd)</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.dakastar.markdown.mkd</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Markdown Document (.mkdn)</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.dakastar.markdown.mkdn</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Markdown Document (.mdx)</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.dakastar.markdown.mdx</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Markdown Document (.mmd)</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.dakastar.markdown.mmd</string>
 			</array>
 		</dict>
 		<dict>
@@ -53,14 +125,95 @@
 				<array>
 					<string>md</string>
 					<string>markdown</string>
-					<string>mdown</string>
-					<string>mkd</string>
-					<string>mkdn</string>
-					<string>mmd</string>
 				</array>
 				<key>public.mime-type</key>
 				<array>
 					<string>text/markdown</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.dakastar.markdown.mdown</string>
+			<key>UTTypeDescription</key>
+			<string>Markdown Document</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mdown</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.dakastar.markdown.mkd</string>
+			<key>UTTypeDescription</key>
+			<string>Markdown Document</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mkd</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.dakastar.markdown.mkdn</string>
+			<key>UTTypeDescription</key>
+			<string>Markdown Document</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mkdn</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.dakastar.markdown.mdx</string>
+			<key>UTTypeDescription</key>
+			<string>Markdown Document</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mdx</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.dakastar.markdown.mmd</string>
+			<key>UTTypeDescription</key>
+			<string>Markdown Document</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mmd</string>
 				</array>
 			</dict>
 		</dict>
