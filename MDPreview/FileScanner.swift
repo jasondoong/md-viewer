@@ -22,6 +22,9 @@ enum FileScanner {
     static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd", "mkdn", "mdx", "mmd"]
     static let mermaidExtensions: Set<String> = ["mmd"]
     static let jsonExtensions: Set<String> = ["json"]
+    /// Maximum JSON file size that is read and rendered, in bytes (50 MiB). This is an
+    /// initial safety bound and may be adjusted after measuring.
+    static let jsonSizeLimit = 50 * 1024 * 1024
     static let skippedDirectories: Set<String> = ["node_modules", "DerivedData", "Pods", ".build", "build"]
     static let maxDepth = 16
 
@@ -96,6 +99,34 @@ enum FileScanner {
                 out.append(node.url)
             }
         }
+    }
+
+    /// Result of a JSON pre-read size check. The check reads only metadata (the file
+    /// size), never the full content.
+    enum JSONSizeCheck: Equatable {
+        /// Within the limit; the file may be read.
+        case withinLimit
+        /// Over the limit; the full content must NOT be read. Carries the actual size
+        /// and the limit so the caller can surface them.
+        case exceedsLimit(actualSize: Int, limit: Int)
+    }
+
+    /// A file's size in bytes from metadata only (no content read). `nil` when the
+    /// size cannot be determined.
+    static func fileSize(_ url: URL) -> Int? {
+        try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+    }
+
+    /// Checks the JSON size limit before reading. Returns `.exceedsLimit` (with the
+    /// actual size and the limit) when the size is over the limit, otherwise
+    /// `.withinLimit`. A file whose size cannot be determined is treated as
+    /// `.withinLimit` so the read itself can surface its own error (the existing
+    /// read-error handling). Exactly at the limit is allowed.
+    static func checkJSONSize(_ url: URL) -> JSONSizeCheck {
+        guard let size = fileSize(url) else { return .withinLimit }
+        return size > jsonSizeLimit
+            ? .exceedsLimit(actualSize: size, limit: jsonSizeLimit)
+            : .withinLimit
     }
 
     /// Reads a text file, falling back to a lossy UTF-8 decode for odd encodings.

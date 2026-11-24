@@ -22,6 +22,9 @@ final class Workspace {
     /// Bumped every time the content is (re)loaded so the web view knows to re-render.
     private(set) var renderVersion = 0
     private(set) var loadError: String?
+    /// Set only when the current JSON selection exceeds the size limit and the full
+    /// content was not read; `nil` otherwise.
+    private(set) var jsonSizeLimitExceeded: JSONSizeLimitInfo?
 
     /// The kind of the current document, derived from the selection's extension.
     /// Mermaid (`.mmd`) is previewed as Markdown, so it reports `.markdown`.
@@ -35,6 +38,14 @@ final class Workspace {
     /// symlink location the user selected rather than resolving it.
     enum DocumentID: Hashable {
         case file(path: String)
+    }
+
+    /// When the current selection is a JSON file that exceeds `FileScanner.jsonSizeLimit`,
+    /// this holds the actual size and the limit so the UI can display them. `nil`
+    /// otherwise (including Markdown and JSON that is within the limit).
+    struct JSONSizeLimitInfo: Equatable {
+        let actualSize: Int
+        let limit: Int
     }
 
     /// The kind of the current selection. `nil` when nothing is selected; even when the
@@ -184,12 +195,26 @@ final class Workspace {
     }
 
     private func loadContent(of url: URL) {
+        jsonSizeLimitExceeded = nil
         let readURL: URL
         if FileScanner.isJSON(url) {
             let resolvedURL = url.resolvingSymlinksInPath()
             guard let rootURL, isDescendant(resolvedURL.path, of: rootURL.resolvingSymlinksInPath().path) else {
                 markdown = ""
                 loadError = "該 JSON 檔案為指向目前資料夾外的符號連結，已拒絕讀取。"
+                renderVersion += 1
+                return
+            }
+            // Check the size before reading. Over the limit: do NOT read the full
+            // content — record the actual size and the limit and surface a read error
+            // (reusing the existing loadError path).
+            switch FileScanner.checkJSONSize(resolvedURL) {
+            case .withinLimit:
+                break
+            case .exceedsLimit(let actualSize, let limit):
+                markdown = ""
+                loadError = "JSON 檔案過大（\(actualSize) 位元組），超過 \(limit) 位元組的上限，未載入全文。"
+                jsonSizeLimitExceeded = JSONSizeLimitInfo(actualSize: actualSize, limit: limit)
                 renderVersion += 1
                 return
             }
