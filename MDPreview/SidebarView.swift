@@ -11,7 +11,8 @@ struct SidebarView: View {
                     ForEach(workspace.filteredFiles, id: \.self) { url in
                         FileRow(
                             name: url.lastPathComponent,
-                            detail: workspace.relativeDirectory(of: url)
+                            detail: workspace.relativeDirectory(of: url),
+                            url: url
                         )
                         .tag(url)
                     }
@@ -57,6 +58,13 @@ struct SidebarView: View {
     }
 }
 
+/// SF Symbol for a sidebar row: a bracket for JSON, a document for Markdown/Mermaid, a folder for directories.
+private func sidebarSymbol(for url: URL?, isDirectory: Bool) -> String {
+    if isDirectory { return "folder" }
+    if let url, FileScanner.isJSON(url) { return "curlybraces" }
+    return "doc.text"
+}
+
 /// One row of the sidebar tree: indentation, disclosure chevron (folders only), icon and name.
 private struct TreeRow: View {
     let row: SidebarRow
@@ -73,7 +81,7 @@ private struct TreeRow: View {
                 .frame(width: 12)
                 .opacity(row.node.isDirectory ? 1 : 0)
 
-            Label(row.node.name, systemImage: row.node.isDirectory ? "folder" : "doc.text")
+            Label(row.node.name, systemImage: sidebarSymbol(for: row.node.url, isDirectory: row.node.isDirectory))
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -85,16 +93,22 @@ private struct TreeRow: View {
 private struct FileRow: View {
     let name: String
     let detail: String
+    let url: URL?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(name)
-                .lineLimit(1)
-            Text(detail)
-                .font(.caption)
+        HStack(spacing: 4) {
+            Image(systemName: sidebarSymbol(for: url, isDirectory: false))
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.head)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name)
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
         }
     }
 }
