@@ -17,6 +17,13 @@
 
   let lastPayload = null;
 
+  // Bumped on every renderDocument; stale in-flight Mermaid loops compare against
+  // this to abort so a rapid document/theme change can't paint outdated output.
+  let renderGeneration = 0;
+
+  // Monotonic counter for Mermaid render IDs (independent of Date.now).
+  let mermaidIdSeq = 0;
+
   function slugify(text) {
     return text
       .trim()
@@ -57,16 +64,19 @@
     });
   }
 
-  async function renderMermaid(root) {
+  async function renderMermaid(root, generation) {
     if (!mermaidReady) return;
     const blocks = Array.from(root.querySelectorAll("pre code.language-mermaid"));
     if (!blocks.length) return;
-    let i = 0;
     for (const code of blocks) {
+      // Abort if a newer render has superseded this one before we await.
+      if (generation !== renderGeneration) return;
       const pre = code.parentElement;
-      const id = "mermaid-" + Date.now() + "-" + i++; // unique per render
+      const id = "mermaid-" + (++mermaidIdSeq); // unique per render
       try {
         const { svg } = await mermaid.render(id, code.textContent);
+        // Abort if a newer render superseded us while we were awaiting.
+        if (generation !== renderGeneration) return;
         const wrap = document.createElement("div");
         wrap.className = "mermaid";
         wrap.innerHTML = svg;
@@ -104,6 +114,8 @@
   };
 
   function renderDocument(payload, resetScroll) {
+    const generation = ++renderGeneration;
+
     if (payload.base) baseEl.setAttribute("href", payload.base);
 
     const { frontMatter, body } = splitFrontMatter(payload.markdown || "");
@@ -117,7 +129,7 @@
 
     addHeadingIDs(content);
     highlight(content);
-    renderMermaid(content);
+    renderMermaid(content, generation);
 
     if (resetScroll) window.scrollTo(0, 0);
   }
