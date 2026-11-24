@@ -97,14 +97,14 @@ final class Workspace {
         reloadTree()
     }
 
-    /// Handles folders or markdown files dropped onto the window.
+    /// Handles folders or previewable files (Markdown/Mermaid or JSON) dropped onto the window.
     func handleDrop(_ urls: [URL]) -> Bool {
         guard let url = urls.first else { return false }
         if isDirectory(url) {
             open(folder: url)
             return true
         }
-        if FileScanner.isMarkdown(url) {
+        if FileScanner.isPreviewable(url) {
             let parent = url.deletingLastPathComponent()
             if let rootURL, url.standardizedFileURL.path.hasPrefix(rootURL.path + "/") {
                 select(url)
@@ -326,7 +326,7 @@ final class Workspace {
             let fileURL = URL(fileURLWithPath: url.path(percentEncoded: false))
             guard FileManager.default.fileExists(atPath: fileURL.path) else { NSSound.beep(); return }
             let insideRoot = rootURL.map { fileURL.standardizedFileURL.path.hasPrefix($0.path + "/") } ?? false
-            if FileScanner.isMarkdown(fileURL), insideRoot {
+            if FileScanner.isPreviewable(fileURL), insideRoot {
                 select(fileURL)
             } else if isDirectory(fileURL) {
                 NSWorkspace.shared.activateFileViewerSelecting([fileURL])
