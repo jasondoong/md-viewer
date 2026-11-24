@@ -23,6 +23,34 @@ final class Workspace {
     private(set) var renderVersion = 0
     private(set) var loadError: String?
 
+    /// The kind of the current document, derived from the selection's extension.
+    /// Mermaid (`.mmd`) is previewed as Markdown, so it reports `.markdown`.
+    enum DocumentKind: Equatable {
+        case markdown
+        case json
+    }
+
+    /// A stable identity for the current document, deliberately kept separate from
+    /// `renderVersion`. The path is the selection's standardized path, which preserves the
+    /// symlink location the user selected rather than resolving it.
+    enum DocumentID: Hashable {
+        case file(path: String)
+    }
+
+    /// The kind of the current selection. `nil` when nothing is selected; even when the
+    /// selected file fails to load, this still reflects the selection.
+    var documentKind: DocumentKind? {
+        guard let selection else { return nil }
+        return FileScanner.isJSON(selection) ? .json : .markdown
+    }
+
+    /// The identity of the current document, separate from `renderVersion`. `nil` when
+    /// nothing is selected; still present when the selected file fails to load.
+    var documentID: DocumentID? {
+        guard let selection else { return nil }
+        return .file(path: selection.standardizedFileURL.path)
+    }
+
     // UI state
     /// Expanded folders, keyed by path (URL equality is fussy about trailing slashes).
     var expanded: Set<String> = []
