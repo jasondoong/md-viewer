@@ -51,6 +51,22 @@ Xcode 按 ⌘R 產生的 Debug 版在 `~/Library/Developer/Xcode/DerivedData/`�
 - **外觀**：預設跟隨系統，也可固定淺色或深色（app 與預覽一起切換）
 - 重開 app 會回到上次的資料夾與檔案
 
+## Mermaid 圖表
+
+預覽支援離線渲染 Mermaid 圖表：在 md 檔中用圍欄式（fenced）mermaid 區塊即可，例如：
+
+````md
+```mermaid
+flowchart TD
+    A[Start] --> B[End]
+```
+````
+
+- **離線**：使用隨附的 `Web/mermaid.min.js`（Mermaid 11.4.1），不需網路即可渲染，授權條款見 `Web/MERMAID-LICENSE.txt`（MIT）
+- **外觀**：圖表會跟隨預覽的淺色 / 深色主題切換
+- **錯誤處理**：某個區塊語法錯誤時，該區塊會顯示錯誤訊息，其餘區塊仍照常渲染
+- 測試用範例見 `Samples/Mermaid.md`（含多種圖表類型、一個刻意寫錯的區塊，以及錯誤之後仍能正常渲染的區塊）
+
 ## 結構
 
 ```
@@ -65,7 +81,7 @@ MDPreview/              Swift 原始碼（同步資料夾）
   QuickOpenView.swift   ⌘P 快速開啟
   MarkdownWebView.swift WKWebView + 自訂 mdpreview:// scheme
   Appearance.swift      淺色 / 深色 / 跟隨系統切換
-Web/                    預覽頁 HTML/JS/CSS（macOS 與 Windows 版共用）（marked 18、highlight.js 11、github-markdown-css 5）
+Web/                    預覽頁 HTML/JS/CSS（macOS 與 Windows 版共用）（marked 18、highlight.js 11、github-markdown-css 5、mermaid 11.4.1）
 Samples/                測試用 md
 ```
 
