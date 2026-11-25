@@ -39,7 +39,13 @@
 // A "limit" error is distinct from a "syntax" error so the display layer can
 // present it differently. A limit error carries no offset.
 //
-// Step 12 wires this parser into the preview display.
+// Step 12 adds a display formatter (`format`) and an offset-to-line/column
+// helper (`lineColumn`) on the same MDPJSON object. The formatter turns a parsed
+// tree into a two-space indented string built ONLY from each value's/key's
+// original token, so it is lossless (no value is changed or dropped) and never
+// interprets a string's contents as HTML; the display layer renders the result
+// with text nodes. `format` stops and reports an over-budget result rather than
+// building output larger than OUTPUT_BUDGET UTF-16 code units.
 
 (function (root) {
   "use strict";
@@ -341,12 +347,137 @@
     }
   }
 
+  // ---- Display formatting (step 12) ------------------------------------
+  //
+  // `format(node)` produces a human-readable, two-space indented string from a
+  // parsed tree. Every basic value and every object key is emitted with its
+  // ORIGINAL token (raw / rawKey), so:
+  //   - large integers and high-precision numbers stay exact (never routed
+  //     through Number()/JSON.parse),
+  //   - object key order and duplicate keys are preserved (no de-dup/merge),
+  //   - strings show their JSON token (quotes + escapes), so markup inside a
+  //     string is displayed, never interpreted.
+  // The result is therefore lossless. The display layer must render it with a
+  // TEXT NODE only so it can be selected, scrolled and styled but never executed.
+  //
+  // Work bound: formatting accumulates output length in UTF-16 code units and
+  // stops the moment it would exceed OUTPUT_BUDGET, returning
+  // { ok: false, reason: "budget" } so the caller can fall back to the raw
+  // source. (A "limit" parse error already prevents a full tree from existing.)
+  var OUTPUT_BUDGET = 64 * 1024 * 1024; // UTF-16 code units
+
+  // Sentinel thrown internally when the running output exceeds the budget.
+  var BUDGET_EXCEEDED = {};
+
+  // Cached two-space indent strings, keyed by indent level (depth is capped at
+  // 128, so the cache stays tiny and avoids rebuilding the same string per item).
+  var INDENT_CACHE = [""];
+  function indentOf(level) {
+    if (level < INDENT_CACHE.length) return INDENT_CACHE[level];
+    var s = "  ".repeat(level); // two spaces per level
+    INDENT_CACHE[level] = s;
+    return s;
+  }
+
+  function push(chunks, ctx, s) {
+    chunks.push(s);
+    ctx.used += s.length;
+    if (ctx.used > OUTPUT_BUDGET) throw BUDGET_EXCEEDED;
+  }
+
+  // Recursively append the formatting of `node` (which lives at `indent` levels
+  // of nesting, the root value being level 0) into `chunks`.
+  function append(node, indent, chunks, ctx) {
+    switch (node.type) {
+      case "object":
+        if (node.entries.length === 0) {
+          push(chunks, ctx, "{}");
+          return;
+        }
+        push(chunks, ctx, "{\n");
+        for (var i = 0; i < node.entries.length; i++) {
+          var e = node.entries[i];
+          push(chunks, ctx, indentOf(indent + 1));
+          push(chunks, ctx, e.rawKey);   // original quoted key token
+          push(chunks, ctx, ": ");
+          append(e.value, indent + 1, chunks, ctx);
+          if (i + 1 < node.entries.length) push(chunks, ctx, ",");
+          push(chunks, ctx, "\n");
+        }
+        push(chunks, ctx, indentOf(indent));
+        push(chunks, ctx, "}");
+        return;
+      case "array":
+        if (node.items.length === 0) {
+          push(chunks, ctx, "[]");
+          return;
+        }
+        push(chunks, ctx, "[\n");
+        for (var j = 0; j < node.items.length; j++) {
+          push(chunks, ctx, indentOf(indent + 1));
+          append(node.items[j], indent + 1, chunks, ctx);
+          if (j + 1 < node.items.length) push(chunks, ctx, ",");
+          push(chunks, ctx, "\n");
+        }
+        push(chunks, ctx, indentOf(indent));
+        push(chunks, ctx, "]");
+        return;
+      default:
+        // Basic value: string / number / boolean / null — use the raw token.
+        push(chunks, ctx, node.raw);
+        return;
+    }
+  }
+
+  // Format a parsed node. Returns { ok: true, text } or
+  // { ok: false, reason: "budget" } (output over budget) or
+  // { ok: false, reason: "not-a-node" } (malformed input).
+  function format(node) {
+    if (node === null || typeof node !== "object" || typeof node.type !== "string") {
+      return { ok: false, reason: "not-a-node" };
+    }
+    var chunks = [];
+    var ctx = { used: 0 };
+    try {
+      append(node, 0, chunks, ctx);
+    } catch (ex) {
+      if (ex === BUDGET_EXCEEDED) return { ok: false, reason: "budget" };
+      throw ex;
+    }
+    return { ok: true, text: chunks.join("") };
+  }
+
+  // Map a reliable UTF-16 offset into the source to a 1-based { line, column }.
+  // The parser only reports an offset it is certain about, so this never guesses.
+  function lineColumn(source, offset) {
+    if (typeof source !== "string") return { line: 1, column: 1 };
+    if (offset < 0) offset = 0;
+    if (offset > source.length) offset = source.length;
+    var line = 1, column = 1;
+    for (var i = 0; i < offset; i++) {
+      var c = source.charCodeAt(i); // UTF-16 code unit, matching the parser's offset
+      if (c === 10) {               // \n always starts a new line
+        line++; column = 1;
+      } else if (c === 13) {        // \r starts a new line, unless part of a CRLF
+        var next = i + 1 < source.length ? source.charCodeAt(i + 1) : -1;
+        if (next === 10) continue;  // CRLF: let the following \n count as one break
+        line++; column = 1;
+      } else {
+        column++;
+      }
+    }
+    return { line: line, column: column };
+  }
+
   // Expose as globalThis.MDPJSON (window in the browser, global in Node).
   var MDPJSON = {
     parse: parse,
+    format: format,
+    lineColumn: lineColumn,
     limits: {
       maxContainerDepth: MAX_CONTAINER_DEPTH,
-      maxNodesAndKeys: MAX_NODES_AND_KEYS
+      maxNodesAndKeys: MAX_NODES_AND_KEYS,
+      outputBudget: OUTPUT_BUDGET
     }
   };
   if (root && typeof root === "object") root.MDPJSON = MDPJSON;

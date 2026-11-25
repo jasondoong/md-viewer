@@ -236,6 +236,71 @@
     },
   };
 
+  // Render a JSON document (a source string) into #content via the shared, offline
+  // JSON display module (globalThis.MDPJSON). Output is rendered with TEXT NODES
+  // only — never marked, innerHTML, or the Markdown link/URL pipeline — so JSON
+  // content can neither be executed nor interpreted as HTML. The formatted text
+  // is lossless (built from original tokens). When the source is invalid or hits a
+  // resource limit, or when formatting exceeds the output budget, a visible notice
+  // plus the original (selectable, scrollable) source is shown instead.
+  function renderJSON(source) {
+    content.textContent = "";
+    if (typeof MDPJSON === "undefined") {
+      // Parser not loaded: fall back to the raw source, still safe (text node).
+      showJSONSource(source, "JSON preview is unavailable; showing the original text.");
+      return;
+    }
+    const result = MDPJSON.parse(source);
+    if (!result.ok) {
+      const err = result.error || {};
+      let message;
+      if (err.kind === "limit") {
+        // A limit is a resource bound, not a position: no line/column.
+        message = "JSON preview limited: " + (err.message || "") + ".";
+      } else {
+        message = "Invalid JSON: " + (err.message || "") + ".";
+        // Line/column only when the parser gave a certain offset; otherwise don't guess.
+        if (err.offset !== undefined) {
+          const loc = MDPJSON.lineColumn(source, err.offset);
+          message += " (line " + loc.line + ", column " + loc.column + ")";
+        }
+      }
+      showJSONSource(source, message, err.kind);
+      return;
+    }
+    const out = MDPJSON.format(result.node);
+    if (out.ok) {
+      showJSONText(out.text);
+    } else {
+      // Output exceeded the budget: fall back to the original source.
+      showJSONSource(source, "Formatted preview exceeded the output limit; showing the original text.");
+    }
+  }
+
+  // A formatted JSON document: a single <pre> text node (selectable, scrollable).
+  function showJSONText(text) {
+    const pre = document.createElement("pre");
+    pre.className = "json-preview";
+    pre.textContent = text; // text node only — never HTML
+    content.appendChild(pre);
+  }
+
+  // The original source, with an optional visible notice above it (invalid /
+  // limited / over-budget). Both are text nodes only; a limit notice is styled
+  // distinctly from a syntax-error notice via the "json-error-limit" class.
+  function showJSONSource(source, notice, kind) {
+    if (notice) {
+      const el = document.createElement("div");
+      el.className = "json-error" + (kind === "limit" ? " json-error-limit" : "");
+      el.textContent = notice; // text node only — never HTML
+      content.appendChild(el);
+    }
+    const pre = document.createElement("pre");
+    pre.className = "json-preview json-source";
+    pre.textContent = source; // original source, selectable & scrollable
+    content.appendChild(pre);
+  }
+
   function renderDocument(payload, resetScroll) {
     const generation = ++renderGeneration;
     activeDiagram = null;
@@ -243,17 +308,12 @@
 
     if (payload.base) baseEl.setAttribute("href", payload.base);
 
-    // JSON branch: render the raw text with a text node only. It is NEVER passed to
-    // marked, innerHTML, or the Markdown link/URL pipeline, so its content cannot be
-    // executed or interpreted as HTML. Bumping `renderGeneration` (done above) also
-    // aborts any in-flight Mermaid render from the previous document. A later step
-    // will replace this placeholder with the tree view.
+    // JSON branch: render via the shared, offline JSON display module. It never
+    // reaches marked / innerHTML / the Markdown URL pipeline, and bumping
+    // renderGeneration (done above) aborts any in-flight Mermaid render from the
+    // previous document.
     if (payload.kind === "json") {
-      const pre = document.createElement("pre");
-      pre.className = "json-preview";
-      pre.textContent = payload.json || "";
-      content.textContent = "";
-      content.appendChild(pre);
+      renderJSON(payload.json || "");
       if (resetScroll) window.scrollTo(0, 0);
       return;
     }

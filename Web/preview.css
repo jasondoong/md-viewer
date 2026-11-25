@@ -99,3 +99,52 @@ html, body {
   cursor: pointer;
   margin-bottom: 8px;
 }
+
+/* JSON preview (step 12): a <pre> of formatted JSON or the raw source, plus an
+   optional error notice. Both are text nodes only, so nothing is HTML. Kept
+   readable and selectable in both light and dark schemes. */
+.markdown-body .json-preview {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 85%;
+  line-height: 1.4;
+  white-space: pre;
+  overflow-x: auto;
+  margin: 0;
+  padding: 16px 0;
+  tab-size: 2;
+}
+
+.markdown-body .json-error {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border: 1px solid #d00;
+  border-radius: 4px;
+  color: #b00020;
+  background: #ffecec;
+  font-size: 85%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* A resource-limit notice is visually distinct from a syntax-error notice. */
+.markdown-body .json-error-limit {
+  border-color: #b06a00;
+  color: #7a4a00;
+  background: #fff4e5;
+}
+
+@media (prefers-color-scheme: dark) {
+  .markdown-body .json-preview {
+    color: #c9d1d9;
+  }
+  .markdown-body .json-error {
+    border-color: #f85149;
+    color: #ffa198;
+    background: #3a1418;
+  }
+  .markdown-body .json-error-limit {
+    border-color: #d29922;
+    color: #e3b341;
+    background: #33261a;
+  }
+}
