@@ -71,13 +71,15 @@ struct WorkspaceCommands: Commands {
                 .keyboardShortcut("r")
                 .disabled(workspace == nil)
 
+            // A pasted document has no file location, so Finder reveal and opening in an
+            // external editor are unavailable for it.
             Button("Reveal in Finder") { workspace?.revealSelectionInFinder() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
-                .disabled(workspace == nil)
+                .disabled(workspace == nil || workspace?.isPastedSelected == true)
 
             Button("Open in Default Editor") { workspace?.openSelectionExternally() }
                 .keyboardShortcut("e")
-                .disabled(workspace == nil)
+                .disabled(workspace == nil || workspace?.isPastedSelected == true)
         }
 
         CommandGroup(after: .toolbar) {
