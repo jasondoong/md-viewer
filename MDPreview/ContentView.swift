@@ -107,7 +107,7 @@ struct DetailView: View {
         if workspace.isPastedSelected {
             MarkdownWebView(
                 fileURL: nil,
-                rootURL: workspace.rootURL,
+                rootURL: nil,
                 markdown: workspace.markdown,
                 documentKind: workspace.documentKind,
                 documentID: workspace.documentID,

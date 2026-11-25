@@ -322,6 +322,7 @@
     controls.hidden = true;
 
     if (payload.base) baseEl.setAttribute("href", payload.base);
+    else if (payload.kind === "json") baseEl.removeAttribute("href");
 
     // JSON branch: render via the shared, offline JSON display module. It never
     // reaches marked / innerHTML / the Markdown URL pipeline, and bumping
