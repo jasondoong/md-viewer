@@ -54,6 +54,13 @@ struct WorkspaceCommands: Commands {
             }
                 .keyboardShortcut("p")
                 .disabled(workspace == nil)
+
+            // Paste JSON opens the in-memory input sheet on the focused window's
+            // workspace. It works even with no folder open (the sheet is attached at
+            // the top level), so it only requires a focused window, not a folder.
+            Button("Paste JSON…") { workspace?.showPasteInput = true }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
+                .disabled(workspace == nil)
         }
 
         CommandMenu("Navigate") {
