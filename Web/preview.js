@@ -253,19 +253,11 @@
     const result = MDPJSON.parse(source);
     if (!result.ok) {
       const err = result.error || {};
-      let message;
-      if (err.kind === "limit") {
-        // A limit is a resource bound, not a position: no line/column.
-        message = "JSON preview limited: " + (err.message || "") + ".";
-      } else {
-        message = "Invalid JSON: " + (err.message || "") + ".";
-        // Line/column only when the parser gave a certain offset; otherwise don't guess.
-        if (err.offset !== undefined) {
-          const loc = MDPJSON.lineColumn(source, err.offset);
-          message += " (line " + loc.line + ", column " + loc.column + ")";
-        }
-      }
-      showJSONSource(source, message, err.kind);
+      const kind = err.kind || "syntax";
+      // Build the visible notice, then show it above the original (selectable,
+      // scrollable) source. Line/column is appended ONLY when the location is
+      // reliable; see jsonErrorNotice.
+      showJSONSource(source, jsonErrorNotice(source, err), kind);
       return;
     }
     const out = MDPJSON.format(result.node);
@@ -275,6 +267,29 @@
       // Output exceeded the budget: fall back to the original source.
       showJSONSource(source, "Formatted preview exceeded the output limit; showing the original text.");
     }
+  }
+
+  // Build the visible error notice for an invalid / limited JSON source
+  // (step 13). The source is always shown verbatim and selectable; the notice
+  // is a text node only. Line/column is shown ONLY when it is reliable, i.e. the
+  // parser reported a "syntax" error carrying a certain numeric UTF-16 offset.
+  // Resource-limit errors are bounds, not positions, so they never show a
+  // line/column; any error without a numeric offset never shows a guessed
+  // position either (we do not fabricate a location).
+  function jsonErrorNotice(source, err) {
+    const kind = err.kind || "syntax";
+    const base = err.message || "";
+    if (kind === "limit") {
+      // A limit is a resource bound, not a position: never show line/column.
+      return "JSON preview limited: " + base + ".";
+    }
+    let message = "Invalid JSON: " + base + ".";
+    // Line/column only when the parser gave a certain, numeric offset.
+    if (kind === "syntax" && typeof err.offset === "number" && MDPJSON.lineColumn) {
+      const loc = MDPJSON.lineColumn(source, err.offset);
+      message += " (line " + loc.line + ", column " + loc.column + ")";
+    }
+    return message;
   }
 
   // A formatted JSON document: a single <pre> text node (selectable, scrollable).
