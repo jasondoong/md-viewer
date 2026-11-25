@@ -113,6 +113,9 @@ final class Workspace {
     var expanded: Set<String> = []
     var filter = ""
     var showQuickOpen = false
+    /// Whether this window's "Paste JSON" input sheet is presented. Held per window so
+    /// each window has its own request/sheet state; usable even with no folder open.
+    var showPasteInput = false
     var zoomLevel: Double = 1.0
     private(set) var recentFiles: [URL] = []
 
@@ -298,6 +301,17 @@ final class Workspace {
     }
 
     // MARK: - Pasted document
+
+    /// Maximum UTF-8 byte length accepted for a pasted JSON submission. Beyond this the
+    /// submission is refused with a visible limit notice and the content is NOT truncated.
+    static let pasteInputSizeLimit = 5 * 1024 * 1024
+
+    /// Whether `text` exceeds the paste size limit. Decided with a bounded UTF-8 scan
+    /// (at most `limit + 1` bytes are inspected) so the validation work stays bounded
+    /// even for very large input.
+    static func exceedsPasteSizeLimit(_ text: String) -> Bool {
+        text.utf8.prefix(pasteInputSizeLimit + 1).count > pasteInputSizeLimit
+    }
 
     /// Accept a new pasted JSON submission. Each accepted submission replaces the window's
     /// in-memory paste and gets a fresh identity. The content is served from memory (no file,

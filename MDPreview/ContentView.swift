@@ -46,6 +46,11 @@ struct ContentView: View {
         .sheet(isPresented: $workspace.showQuickOpen) {
             QuickOpenView(workspace: workspace)
         }
+        // The "Paste JSON" input sheet is attached at the top level so it is reachable
+        // even when no folder is open (it works on memory-only pasted content).
+        .sheet(isPresented: $workspace.showPasteInput) {
+            PasteInputView(workspace: workspace, show: $workspace.showPasteInput)
+        }
         .dropDestination(for: URL.self) { urls, _ in
             workspace.handleDrop(urls)
         } isTargeted: { isDropTargeted = $0 }
@@ -161,5 +166,83 @@ struct DetailView: View {
                 description: Text("Pick a file in the sidebar, or press ⌘P to jump to one.")
             )
         }
+    }
+}
+
+// MARK: - Paste JSON input
+
+/// A multi-line input sheet for pasting JSON. Any text is accepted (including text that is
+/// not valid JSON, which is still submitted so the preview can show the raw text and any
+/// error). Submission is gated by an explicit UTF-8 byte limit; over the limit the submission
+/// is refused and the limit is shown, with no truncation.
+///
+/// Enter inserts a newline (the default `TextEditor` behaviour), the Preview button submits,
+/// and Esc / Cancel dismisses without submitting. The sheet state lives on the window's
+/// `Workspace` (`showPasteInput`), so it is usable even with no folder open.
+struct PasteInputView: View {
+    let workspace: Workspace
+    @Binding var show: Bool
+
+    @State private var text = ""
+    @FocusState private var editorFocused: Bool
+
+    /// Whether the draft exceeds the explicit paste size limit (bounded UTF-8 scan).
+    private var overLimit: Bool { Workspace.exceedsPasteSizeLimit(text) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Paste JSON").font(.headline)
+                Text("Paste or type JSON here. Press Preview to show it, or Esc to cancel.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                if overLimit {
+                    Label(
+                        "Content is larger than the \(ByteFormat.humanReadableBytes(Workspace.pasteInputSizeLimit)) limit. Submit is disabled; nothing is truncated.",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Divider()
+
+            TextEditor(text: $text)
+                .font(.system(.body, design: .monospaced))
+                .focused($editorFocused)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    show = false
+                }
+                .keyboardShortcut(.cancelAction)
+
+                // Only the Preview button commits; it is refused when over the limit. Empty
+                // and invalid content are still accepted so the preview can show the raw text.
+                Button("Preview") {
+                    submit()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(overLimit)
+            }
+            .padding()
+        }
+        .frame(width: 640, height: 480)
+        .onExitCommand { show = false }
+        .onAppear { editorFocused = true }
+    }
+
+    private func submit() {
+        // Over the limit: refuse (the button is also disabled) and never truncate.
+        guard !overLimit else { return }
+        workspace.submitPastedJSON(text)
+        show = false
     }
 }
