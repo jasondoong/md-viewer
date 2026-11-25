@@ -86,7 +86,23 @@ struct DetailView: View {
     let workspace: Workspace
 
     var body: some View {
-        if workspace.rootURL == nil {
+        // A pasted document has no file location, so it is shown first, ahead of the
+        // no-folder prompt and the file branches. It is rendered from memory as JSON
+        // (documentKind .json, identity .pasted); `fileURL` is nil (no base, no local
+        // resource URL).
+        if workspace.isPastedSelected {
+            MarkdownWebView(
+                fileURL: nil,
+                rootURL: workspace.rootURL,
+                markdown: workspace.markdown,
+                documentKind: workspace.documentKind,
+                documentID: workspace.documentID,
+                version: workspace.renderVersion,
+                zoom: workspace.zoomLevel,
+                onLinkClicked: { workspace.handleLink($0) },
+                onZoomBy: { workspace.zoom(by: $0) }
+            )
+        } else if workspace.rootURL == nil {
             ContentUnavailableView {
                 VStack(spacing: 12) {
                     Image(nsImage: NSApplication.shared.applicationIconImage)

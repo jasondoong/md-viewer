@@ -6,6 +6,16 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $workspace.selection) {
+            // Pinned pasted-JSON row, shown whenever this window has an in-memory paste
+            // (so it stays reselectable after switching files or folders), including the
+            // no-folder case. It has no file location, so it is not part of the file
+            // `List` selection binding: tapping it re-selects the pasted document, and it
+            // highlights only while that document is the active one.
+            if workspace.pastedID != nil {
+                PastedRow(isSelected: workspace.isPastedSelected) {
+                    workspace.selectPastedJSON()
+                }
+            }
             if !workspace.filter.trimmingCharacters(in: .whitespaces).isEmpty {
                 Section("Matches") {
                     ForEach(workspace.filteredFiles, id: \.self) { url in
@@ -63,6 +73,30 @@ private func sidebarSymbol(for url: URL?, isDirectory: Bool) -> String {
     if isDirectory { return "folder" }
     if let url, FileScanner.isJSON(url) { return "curlybraces" }
     return "doc.text"
+}
+
+/// A pinned sidebar row for the in-memory pasted JSON document. It has no file location, so
+/// it is not part of the file `List` selection binding; tapping it re-selects the pasted
+/// document. It highlights only while the pasted document is the active one (`isSelected`).
+private struct PastedRow: View {
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "curlybraces")
+                .foregroundStyle(.secondary)
+            Text("Pasted JSON")
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { action() }
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isSelected ? Color.accentColor.opacity(0.25) : Color.clear)
+        )
+    }
 }
 
 /// One row of the sidebar tree: indentation, disclosure chevron (folders only), icon and name.

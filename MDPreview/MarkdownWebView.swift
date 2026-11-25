@@ -6,7 +6,10 @@ import WebKit
 /// switching files or reloading only swaps the content via JavaScript, so it's fast and keeps
 /// the scroll position on live reload.
 struct MarkdownWebView: NSViewRepresentable {
-    let fileURL: URL
+    /// `nil` for an in-memory pasted document, which has no file location. The web layer
+    /// uses this only to derive the resource base URL; a pasted JSON document has no base
+    /// (no file, no local resource URL) and never loads one.
+    let fileURL: URL?
     let rootURL: URL?
     let markdown: String
     /// The current document kind (`.markdown` or `.json`). The same `markdown` field
@@ -82,7 +85,7 @@ struct MarkdownWebView: NSViewRepresentable {
         let schemeHandler = LocalSchemeHandler()
 
         private var pageLoaded = false
-        private var pending: (url: URL, markdown: String, kind: Workspace.DocumentKind?, id: Workspace.DocumentID?, version: Int)?
+        private var pending: (url: URL?, markdown: String, kind: Workspace.DocumentKind?, id: Workspace.DocumentID?, version: Int)?
         private var renderedDocumentID: String?
         private var renderedVersion = -1
 
@@ -92,7 +95,7 @@ struct MarkdownWebView: NSViewRepresentable {
             schemeHandler.rootURL = parent.rootURL
         }
 
-        func render(fileURL: URL, markdown: String, documentKind: Workspace.DocumentKind?, documentID: Workspace.DocumentID?, version: Int) {
+        func render(fileURL: URL?, markdown: String, documentKind: Workspace.DocumentKind?, documentID: Workspace.DocumentID?, version: Int) {
             pending = (fileURL, markdown, documentKind, documentID, version)
             flush()
         }
@@ -113,9 +116,12 @@ struct MarkdownWebView: NSViewRepresentable {
             // the new kind + documentID + json fields. Web with an old payload (no kind)
             // takes the Markdown path, so this stays backward compatible.
             let kind = (job.kind == .json) ? "json" : "markdown"
+            // A pasted document has no file, hence no base. Markdown derives its base from
+            // the file's directory; JSON never loads a base, so an empty base is correct.
+            let base = job.url.map { LocalSchemeHandler.baseURL(forDirectoryOf: $0) } ?? ""
             var payload: [String: Any] = [
                 "kind": kind,
-                "base": LocalSchemeHandler.baseURL(forDirectoryOf: job.url),
+                "base": base,
                 "resetScroll": isNewIdentity,
             ]
             if let id {
