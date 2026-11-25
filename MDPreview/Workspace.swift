@@ -15,7 +15,10 @@ final class Workspace {
     // Current document
     var selection: URL? {
         didSet {
-            if selection != oldValue { loadSelection() }
+            guard selection != oldValue else { return }
+            // Selecting a file ends any active pasted-document selection.
+            if selection != nil { isPastedSelected = false }
+            loadSelection()
         }
     }
     private(set) var markdown = ""
@@ -25,6 +28,15 @@ final class Workspace {
     /// Set only when the current JSON selection exceeds the size limit and the full
     /// content was not read; `nil` otherwise.
     private(set) var jsonSizeLimitExceeded: JSONSizeLimitInfo?
+
+    // Pasted document: an in-memory JSON document with no file location, kept
+    // separately per window. A new submission replaces it and gets a fresh identity;
+    // re-selecting the same item keeps that identity. It is not persisted and does not
+    // touch recent files. `selection` stays `nil` while a paste is active (no fake path).
+    private(set) var pastedText: String?
+    private(set) var pastedID: UUID?
+    /// Whether the current document is the pasted one rather than a file.
+    private(set) var isPastedSelected = false
 
     /// The kind of the current document, derived from the selection's extension.
     /// Mermaid (`.mmd`) is previewed as Markdown, so it reports `.markdown`.
@@ -38,16 +50,19 @@ final class Workspace {
     /// symlink location the user selected rather than resolving it.
     enum DocumentID: Hashable {
         case file(path: String)
+        case pasted(UUID)
 
         /// The identity string sent to the web layer. A file document encodes as
-        /// "file:" + the standardized selection path; a pasted document (added later)
-        /// will encode as "paste:" + a UUID. This is the identity the web layer uses to
-        /// decide when to reset the scroll position (on an identity change) versus keep
-        /// the position (same identity, content re-rendered).
+        /// "file:" + the standardized selection path; a pasted document encodes as
+        /// "paste:" + a UUID. This is the identity the web layer uses to decide when to
+        /// reset the scroll position (on an identity change) versus keep the position
+        /// (same identity, content re-rendered).
         var payloadString: String {
             switch self {
             case let .file(path):
                 return "file:" + path
+            case let .pasted(id):
+                return "paste:" + id.uuidString
             }
         }
     }
@@ -77,6 +92,7 @@ final class Workspace {
     /// The kind of the current selection. `nil` when nothing is selected; even when the
     /// selected file fails to load, this still reflects the selection.
     var documentKind: DocumentKind? {
+        if isPastedSelected { return .json }
         guard let selection else { return nil }
         return FileScanner.isJSON(selection) ? .json : .markdown
     }
@@ -84,6 +100,10 @@ final class Workspace {
     /// The identity of the current document, separate from `renderVersion`. `nil` when
     /// nothing is selected; still present when the selected file fails to load.
     var documentID: DocumentID? {
+        if isPastedSelected {
+            guard let pastedID else { return nil }
+            return .pasted(pastedID)
+        }
         guard let selection else { return nil }
         return .file(path: selection.standardizedFileURL.path)
     }
@@ -204,6 +224,8 @@ final class Workspace {
     }
 
     private func loadSelection() {
+        // A pasted document is served from memory; never read a file while it is active.
+        if isPastedSelected { return }
         guard let url = selection else {
             markdown = ""
             loadError = nil
@@ -263,8 +285,48 @@ final class Workspace {
     }
 
     func reloadAll() {
-        if let selection { loadContent(of: selection) }
+        if isPastedSelected {
+            // Re-send the pasted content from memory and bump the version; never read a file.
+            markdown = pastedText ?? ""
+            loadError = nil
+            jsonSizeLimitExceeded = nil
+            renderVersion += 1
+        } else if let selection {
+            loadContent(of: selection)
+        }
         reloadTree()
+    }
+
+    // MARK: - Pasted document
+
+    /// Accept a new pasted JSON submission. Each accepted submission replaces the window's
+    /// in-memory paste and gets a fresh identity. The content is served from memory (no file,
+    /// no base URL), is not persisted, and does not touch recent files. It is JSON so the
+    /// web layer renders it as JSON.
+    func submitPastedJSON(_ text: String) {
+        let id = UUID()
+        pastedText = text
+        pastedID = id
+        // Switch to the pasted document. Setting `selection` to nil triggers
+        // `loadSelection`, but the just-set `isPastedSelected` makes it skip the file path.
+        isPastedSelected = true
+        selection = nil
+        markdown = text
+        loadError = nil
+        jsonSizeLimitExceeded = nil
+        renderVersion += 1
+    }
+
+    /// Re-select this window's most recent pasted document, keeping its identity (no new
+    /// UUID). No-op when nothing has been pasted yet.
+    func selectPastedJSON() {
+        guard let text = pastedText, pastedID != nil else { return }
+        isPastedSelected = true
+        selection = nil
+        markdown = text
+        loadError = nil
+        jsonSizeLimitExceeded = nil
+        renderVersion += 1
     }
 
     // MARK: - Tree
@@ -289,7 +351,8 @@ final class Workspace {
 
         if pendingAutoSelect {
             pendingAutoSelect = false
-            if selection == nil, let first = preferredInitialFile() {
+            // Don't override an active pasted-document selection with an auto-selected file.
+            if selection == nil, !isPastedSelected, let first = preferredInitialFile() {
                 selection = first
             }
         }
