@@ -21,6 +21,7 @@ struct MarkdownWebView: NSViewRepresentable {
     let documentID: Workspace.DocumentID?
     let version: Int
     let zoom: Double
+    let jsonTreeCommand: Workspace.JSONTreeCommand?
     let onLinkClicked: (URL) -> Void
     /// Called with a zoom step (±0.1) when the user does Ctrl + scroll-wheel, so the host
     /// can update its persisted `zoomLevel`. Plain scroll scrolls natively; Shift scrolls horizontally.
@@ -67,7 +68,8 @@ struct MarkdownWebView: NSViewRepresentable {
             markdown: markdown,
             documentKind: documentKind,
             documentID: documentID,
-            version: version
+            version: version,
+            jsonTreeCommand: jsonTreeCommand
         )
     }
 
@@ -85,9 +87,10 @@ struct MarkdownWebView: NSViewRepresentable {
         let schemeHandler = LocalSchemeHandler()
 
         private var pageLoaded = false
-        private var pending: (url: URL?, markdown: String, kind: Workspace.DocumentKind?, id: Workspace.DocumentID?, version: Int)?
+        private var pending: (url: URL?, markdown: String, kind: Workspace.DocumentKind?, id: Workspace.DocumentID?, version: Int, jsonTreeCommand: Workspace.JSONTreeCommand?)?
         private var renderedDocumentID: String?
         private var renderedVersion = -1
+        private var lastJSONTreeCommandID: UUID?
 
         init(parent: MarkdownWebView) {
             self.parent = parent
@@ -95,8 +98,8 @@ struct MarkdownWebView: NSViewRepresentable {
             schemeHandler.rootURL = parent.rootURL
         }
 
-        func render(fileURL: URL?, markdown: String, documentKind: Workspace.DocumentKind?, documentID: Workspace.DocumentID?, version: Int) {
-            pending = (fileURL, markdown, documentKind, documentID, version)
+        func render(fileURL: URL?, markdown: String, documentKind: Workspace.DocumentKind?, documentID: Workspace.DocumentID?, version: Int, jsonTreeCommand: Workspace.JSONTreeCommand?) {
+            pending = (fileURL, markdown, documentKind, documentID, version, jsonTreeCommand)
             flush()
         }
 
@@ -107,35 +110,45 @@ struct MarkdownWebView: NSViewRepresentable {
             // identity resets scroll; the same identity re-rendered (version bump) keeps
             // the position. Falls back to nil when no document is selected.
             let id = job.id?.payloadString
-            guard id != renderedDocumentID || job.version != renderedVersion else { return }
-            let isNewIdentity = id != renderedDocumentID
-            renderedDocumentID = id
-            renderedVersion = job.version
+            if id != renderedDocumentID || job.version != renderedVersion {
+                let isNewIdentity = id != renderedDocumentID
+                renderedDocumentID = id
+                renderedVersion = job.version
 
-            // Keep the legacy web payload fields (base / resetScroll / markdown) and add
-            // the new kind + documentID + json fields. Web with an old payload (no kind)
-            // takes the Markdown path, so this stays backward compatible.
-            let kind = (job.kind == .json) ? "json" : "markdown"
-            // A pasted document has no file, hence no base. Markdown derives its base from
-            // the file's directory; JSON never loads a base, so an empty base is correct.
-            let base = job.url.map { LocalSchemeHandler.baseURL(forDirectoryOf: $0) } ?? ""
-            var payload: [String: Any] = [
-                "kind": kind,
-                "base": base,
-                "resetScroll": isNewIdentity,
-            ]
-            if let id {
-                payload["documentID"] = id
+                // Keep the legacy web payload fields (base / resetScroll / markdown) and add
+                // the new kind + documentID + json fields. Web with an old payload (no kind)
+                // takes the Markdown path, so this stays backward compatible.
+                let kind = (job.kind == .json) ? "json" : "markdown"
+                // A pasted document has no file, hence no base. Markdown derives its base from
+                // the file's directory; JSON never loads a base, so an empty base is correct.
+                let base = job.url.map { LocalSchemeHandler.baseURL(forDirectoryOf: $0) } ?? ""
+                var payload: [String: Any] = [
+                    "kind": kind,
+                    "base": base,
+                    "resetScroll": isNewIdentity,
+                ]
+                if let id {
+                    payload["documentID"] = id
+                }
+                if kind == "json" {
+                    payload["json"] = job.markdown
+                } else {
+                    payload["markdown"] = job.markdown
+                }
+                guard let data = try? JSONSerialization.data(withJSONObject: payload),
+                      let json = String(data: data, encoding: .utf8) else { return }
+                webView.evaluateJavaScript("window.MDP.render(\(json));") { _, error in
+                    if let error { NSLog("MDPreview render error: \(error)") }
+                }
             }
-            if kind == "json" {
-                payload["json"] = job.markdown
-            } else {
-                payload["markdown"] = job.markdown
-            }
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let json = String(data: data, encoding: .utf8) else { return }
-            webView.evaluateJavaScript("window.MDP.render(\(json));") { _, error in
-                if let error { NSLog("MDPreview render error: \(error)") }
+
+            // Dispatch JSON tree expand/collapse command if the command state changed.
+            if let cmd = job.jsonTreeCommand, cmd.id != self.lastJSONTreeCommandID {
+                self.lastJSONTreeCommandID = cmd.id
+                // Gate on document identity and render version to ensure we target the correct view
+                if cmd.documentID?.payloadString == id && cmd.renderVersion == job.version {
+                    webView.evaluateJavaScript("window.MDP?.setJSONTreeExpanded(\(cmd.expanded));", completionHandler: nil)
+                }
             }
         }
 
@@ -166,7 +179,8 @@ struct MarkdownWebView: NSViewRepresentable {
                     parent.markdown,
                     parent.documentKind,
                     parent.documentID,
-                    parent.version
+                    parent.version,
+                    parent.jsonTreeCommand
                 )
             }
             flush()

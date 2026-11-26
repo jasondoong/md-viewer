@@ -234,17 +234,21 @@
       document.documentElement.style.zoom = String(factor);
       this.setControlScale(factor);
     },
+
+    // Dispatch expand/collapse to the current JSON tree only.
+    setJSONTreeExpanded(expanded) {
+      if (typeof MDPJSONTree === "undefined") return;
+      if (expanded) MDPJSONTree.expandAll();
+      else MDPJSONTree.collapseAll();
+    },
   };
 
-  // Render a JSON document (a source string) into #content via the shared, offline
-  // JSON display module (globalThis.MDPJSON). Output is rendered with TEXT NODES
-  // only — never marked, innerHTML, or the Markdown link/URL pipeline — so JSON
-  // content can neither be executed nor interpreted as HTML. The formatted text
-  // is lossless (built from original tokens). When the source is invalid or hits a
-  // resource limit, or when formatting exceeds the output budget, a visible notice
-  // plus the original (selectable, scrollable) source is shown instead.
-  function renderJSON(source) {
+
+  function renderJSON(source, documentID, onProgress) {
     content.textContent = "";
+    if (typeof MDPJSONTree !== "undefined") {
+      MDPJSONTree.clearActive();
+    }
     if (typeof MDPJSON === "undefined") {
       // Parser not loaded: fall back to the raw source, still safe (text node).
       showJSONSource(source, "JSON preview is unavailable; showing the original text.");
@@ -260,6 +264,19 @@
       showJSONSource(source, jsonErrorNotice(source, err), kind);
       return;
     }
+    // Happy path: render the lossless, safe tree (step 19). All values/keys are
+    // text nodes, so markup inside a string is never executed. If the tree hits
+    // its temporary node cap the mount leaves the host empty; we then fall back
+    // to the explicit raw-source display (the first-phase fallback).
+    if (typeof MDPJSONTree !== "undefined") {
+      const ctrl = MDPJSONTree.mount(content, result.node, { documentID: documentID, source: source, onProgress: onProgress });
+      if (ctrl.complete) {
+        return;
+      }
+      showJSONSource(source, "JSON tree preview reached its size limit; showing the original text.");
+      return;
+    }
+    // Fallback when the tree module is absent: the plain lossless format.
     const out = MDPJSON.format(result.node);
     if (out.ok) {
       showJSONText(out.text);
@@ -316,10 +333,23 @@
     content.appendChild(pre);
   }
 
+  let inputCounter = 0;
+  function onUserInput() { inputCounter++; }
+  window.addEventListener('wheel', onUserInput, { passive: true });
+  window.addEventListener('pointerdown', onUserInput, { passive: true });
+  window.addEventListener('keydown', onUserInput, { passive: true });
+
   function renderDocument(payload, resetScroll) {
     const generation = ++renderGeneration;
     activeDiagram = null;
     controls.hidden = true;
+
+    const targetX = resetScroll ? 0 : window.scrollX;
+    const targetY = resetScroll ? 0 : window.scrollY;
+
+    if (typeof MDPJSONTree !== "undefined") {
+      MDPJSONTree.clearActive();
+    }
 
     if (payload.base) baseEl.setAttribute("href", payload.base);
     else if (payload.kind === "json") baseEl.removeAttribute("href");
@@ -329,8 +359,32 @@
     // renderGeneration (done above) aborts any in-flight Mermaid render from the
     // previous document.
     if (payload.kind === "json") {
-      renderJSON(payload.json || "");
-      if (resetScroll) window.scrollTo(0, 0);
+      let lastInputCounter = inputCounter;
+      let reachedTarget = false;
+
+      function restoreScroll() {
+        if (resetScroll || generation !== renderGeneration) return;
+        if (inputCounter !== lastInputCounter) return;
+        if (reachedTarget) return;
+
+        const currentX = window.scrollX;
+        const currentY = window.scrollY;
+
+        if (currentX === targetX && currentY === targetY) {
+          reachedTarget = true;
+          return;
+        }
+
+        window.scrollTo(targetX, targetY);
+      }
+
+      if (resetScroll) {
+        renderJSON(payload.json || "", payload.documentID, undefined);
+        window.scrollTo(0, 0);
+      } else {
+        renderJSON(payload.json || "", payload.documentID, restoreScroll);
+        restoreScroll();
+      }
       return;
     }
 

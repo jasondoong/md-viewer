@@ -97,6 +97,11 @@ struct WorkspaceCommands: Commands {
             Button("Actual Size") { workspace?.resetZoom() }
                 .keyboardShortcut("0")
             Divider()
+            Button("Expand All") { workspace?.requestJSONTreeExpandAll() }
+                .disabled(workspace == nil || workspace?.documentKind != .json)
+            Button("Collapse All") { workspace?.requestJSONTreeCollapseAll() }
+                .disabled(workspace == nil || workspace?.documentKind != .json)
+            Divider()
             Menu("Appearance") {
                 AppearancePicker(selection: $appearance)
                     .pickerStyle(.inline)

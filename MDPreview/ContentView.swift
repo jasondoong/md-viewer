@@ -113,6 +113,7 @@ struct DetailView: View {
                 documentID: workspace.documentID,
                 version: workspace.renderVersion,
                 zoom: workspace.zoomLevel,
+                jsonTreeCommand: workspace.jsonTreeCommand,
                 onLinkClicked: { workspace.handleLink($0) },
                 onZoomBy: { workspace.zoom(by: $0) }
             )
@@ -156,6 +157,7 @@ struct DetailView: View {
                     documentID: workspace.documentID,
                     version: workspace.renderVersion,
                     zoom: workspace.zoomLevel,
+                    jsonTreeCommand: workspace.jsonTreeCommand,
                     onLinkClicked: { workspace.handleLink($0) },
                     onZoomBy: { workspace.zoom(by: $0) }
                 )

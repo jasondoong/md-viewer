@@ -108,6 +108,23 @@ final class Workspace {
         return .file(path: selection.standardizedFileURL.path)
     }
 
+    // JSON tree expand/collapse command state
+    struct JSONTreeCommand: Equatable, Identifiable {
+        let id: UUID
+        let documentID: DocumentID?
+        let renderVersion: Int
+        let expanded: Bool
+    }
+    private(set) var jsonTreeCommand: JSONTreeCommand? = nil
+
+    func requestJSONTreeExpandAll() {
+        jsonTreeCommand = JSONTreeCommand(id: UUID(), documentID: documentID, renderVersion: renderVersion, expanded: true)
+    }
+
+    func requestJSONTreeCollapseAll() {
+        jsonTreeCommand = JSONTreeCommand(id: UUID(), documentID: documentID, renderVersion: renderVersion, expanded: false)
+    }
+
     // UI state
     /// Expanded folders, keyed by path (URL equality is fussy about trailing slashes).
     var expanded: Set<String> = []
