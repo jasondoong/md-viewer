@@ -42,7 +42,11 @@ class MockElement {
     this.tabIndex = 0;
     this._classList = new ClassList();
     this._focused = false;
+    this._hidden = false;
   }
+
+  get hidden() { return this._hidden; }
+  set hidden(v) { this._hidden = !!v; }
 
   get className() { return this._className; }
   set className(v) {
@@ -73,6 +77,10 @@ class MockElement {
     child._parent = this;
     this._children.push(child);
     return child;
+  }
+
+  remove() {
+    if (this._parent) this._parent.removeChild(this);
   }
 
   removeChild(child) {
@@ -194,6 +202,7 @@ class MockElement {
     let el = this;
     while (el) {
       if (el.nodeType === 1) {
+        if (selector === "[hidden]" && el.hidden) return el;
         if (selector.startsWith(".")) {
           if (el.classList.contains(selector.slice(1))) return el;
         }
@@ -237,6 +246,7 @@ globalThis.window = {
     // and json-tree.js checks tree.alive / c.expanded to skip stale work.
   },
   getSelection: () => ({ type: "None" }),
+  innerHeight: 800,
 };
 
 // Drain all queued rAF callbacks (up to a limit to avoid infinite loops)
@@ -307,9 +317,10 @@ section("1. Parser regression");
   assert(r4.node.entries[0].value.raw === "1234567890123456789", "large int token preserved");
 }
 
-// 2. Collapsed label — no "…" (Phase 1)
-// Use depth 4 so the innermost object is collapsed by default (depth > 2)
-section("2. Collapsed label has no ellipsis (Phase 1)");
+// 2. Collapsed label is a well-formed preview (Phase 2)
+// Phase 2 previews the first few keys/values of a collapsed container, so a
+// "…" may now appear; what must hold is a bracketed, text-only preview.
+section("2. Collapsed label is a well-formed preview (Phase 2)");
 {
   const src = '{"a":{"b":{"c":{"d":{"e":1}}}}}';
   const { host } = mountAndFlush(src, "t2");
@@ -321,19 +332,24 @@ section("2. Collapsed label has no ellipsis (Phase 1)");
   const collapsed = toggles.filter(t => t.classList.contains("json-collapsed"));
   assert(collapsed.length >= 1, "at least one collapsed toggle exists");
 
-  // Check the collapsed label: no "…", has count, has brackets
+  // Check the collapsed label is a bracketed, text-only preview (Phase 2)
   for (const t of collapsed) {
     const label = t.textContent;
-    assert(!label.includes("…"), "collapsed label has no ellipsis: " + JSON.stringify(label));
-    assert(/\d/.test(label), "collapsed label has digit count: " + JSON.stringify(label));
-    assert(t.classList.contains("json-object") || t.classList.contains("json-array"),
-      "collapsed toggle has type class");
+    const isObj = t.classList.contains("json-object");
+    const isArr = t.classList.contains("json-array");
+    assert(isObj || isArr, "collapsed toggle has type class: " + JSON.stringify(label));
+    if (isObj) assert(label.startsWith("{") && label.endsWith("}"),
+      "object preview wrapped in braces: " + JSON.stringify(label));
+    if (isArr) assert(label.startsWith("[") && label.endsWith("]"),
+      "array preview wrapped in brackets: " + JSON.stringify(label));
+    assert(t.querySelectorAll("script").length === 0, "no <script> element in preview");
+    assert(t.querySelectorAll("b").length === 0, "no <b> element in preview");
   }
   MDPJSONTree.clearActive();
 }
 
 // 3. Collapsed object label format: "{ N keys }"
-section("3. Collapsed object label format");
+section("3. Collapsed object preview shows keys and remainder");
 {
   // Create a deep object that will be collapsed by default
   const src = '{"outer":{"inner":{"x":1,"y":2,"z":3}}}';
@@ -346,21 +362,75 @@ section("3. Collapsed object label format");
   // Let's use a deeper structure
   MDPJSONTree.clearActive();
 
-  const src2 = '{"a":{"b":{"c":{"d":1,"e":2,"f":3}}}}';
+  const src2 = '{"a":{"b":{"c":{"d":1,"e":2,"f":3,"g":4,"h":5}}}}';
   const { host: host2 } = mountAndFlush(src2, "t3b");
   const toggles2 = host2.querySelectorAll(".json-toggle");
   // a(1) open, b(2) open, c(3) collapsed
   const collapsed = toggles2.filter(t => t.classList.contains("json-collapsed"));
   assert(collapsed.length >= 1, "depth-3 object is collapsed by default");
   const label = collapsed[0].textContent;
-  assert(label.includes("3 keys"), "label shows '3 keys': " + JSON.stringify(label));
+  assert(label.includes("d") && label.includes("f"), "preview shows first 3 keys: " + JSON.stringify(label));
   assert(label.startsWith("{") && label.endsWith("}"), "wrapped in braces: " + JSON.stringify(label));
-  assert(!label.includes("…"), "no ellipsis: " + JSON.stringify(label));
+  assert(label.includes("…") && label.includes("2 more keys"),
+    "preview reports a '… 2 more keys' remainder: " + JSON.stringify(label));
   MDPJSONTree.clearActive();
 }
 
-// 4. Collapsed array label format: "[ N items ]"
-section("4. Collapsed array label format");
+// 3b. Nested container inside a preview collapses to "{… N keys}" / "[… N items]"
+section("3b. Nested container preview shows '{… N keys}' / '[… N items]'");
+{
+  // c (depth 3) has one key whose value is an object with 2 keys.
+  const src = '{"a":{"b":{"c":{"inner":{"x":1,"y":2}}}}}'
+  ;
+  const { host } = mountAndFlush(src, "t3b_nested");
+  const collapsed = host.querySelectorAll(".json-toggle.json-collapsed");
+  const obj = collapsed.find(t => t.classList.contains("json-object"));
+  assert(!!obj, "depth-3 object is collapsed by default");
+  assert(obj.textContent.includes("2 keys"),
+    "nested object preview reports '2 keys': " + JSON.stringify(obj.textContent));
+
+  MDPJSONTree.clearActive();
+  // c (depth 3) is an array whose first item is a 3-element array.
+  const src2b = '{"a":{"b":{"c":[[1,2,3],[4,5]]}}}'
+  ;
+  const { host: host2b } = mountAndFlush(src2b, "t3b_nested_arr");
+  const collapsed2b = host2b.querySelectorAll(".json-toggle.json-collapsed");
+  const arr2b = collapsed2b.find(t => t.classList.contains("json-array"));
+  assert(!!arr2b, "depth-3 array is collapsed by default");
+  assert(arr2b.textContent.includes("3 items"),
+    "nested array preview reports '3 items': " + JSON.stringify(arr2b.textContent));
+  MDPJSONTree.clearActive();
+}
+
+// 3c. A long string value is truncated inside a preview
+section("3c. Long string value is truncated in a preview");
+{
+  const long = "x".repeat(50);
+  const src = '{"a":{"b":{"c":{"k":"' + long + '"}}}}';
+  const { host } = mountAndFlush(src, "t3c");
+  const collapsed = host.querySelectorAll(".json-toggle.json-collapsed");
+  const obj = collapsed.find(t => t.classList.contains("json-object"));
+  assert(!!obj, "depth-3 object is collapsed by default");
+  const label = obj.textContent;
+  assert(label.includes("…"), "truncated value shows an ellipsis: " + JSON.stringify(label));
+  const run = (label.match(/x+/) || [""])[0].length;
+  assert(run <= 20, "value preview truncated to ~20 chars (got " + run + "): " + JSON.stringify(label));
+  assert(!label.includes(long), "full long string is not shown in the preview");
+  MDPJSONTree.clearActive();
+}
+
+// 3d. Container toggles carry a distinct type class (P3 color differentiation)
+section("3d. Container toggles carry json-object / json-array type classes");
+{
+  const src = '{"obj":{"nested":[1,2,3]},"list":[{"a":1}]}';
+  const { host } = mountAndFlush(src, "t3d");
+  assert(host.querySelectorAll(".json-toggle.json-object").length >= 1, "at least one json-object toggle");
+  assert(host.querySelectorAll(".json-toggle.json-array").length >= 1, "at least one json-array toggle");
+  MDPJSONTree.clearActive();
+}
+
+// 4. Collapsed array preview: first 3 items + "… N more items"
+section("4. Collapsed array preview shows items and remainder");
 {
   // Deep array at depth 3
   const src = '{"a":{"b":{"c":[1,2,3,4,5,6,7,8,9,10]}}}';
@@ -370,9 +440,10 @@ section("4. Collapsed array label format");
   const collapsed = toggles.filter(t => t.classList.contains("json-collapsed"));
   assert(collapsed.length >= 1, "depth-3 array is collapsed by default");
   const label = collapsed[0].textContent;
-  assert(label.includes("10 items"), "label shows '10 items': " + JSON.stringify(label));
+  assert(label.includes("1") && label.includes("3"), "preview shows first items: " + JSON.stringify(label));
   assert(label.startsWith("[") && label.endsWith("]"), "wrapped in brackets: " + JSON.stringify(label));
-  assert(!label.includes("…"), "no ellipsis: " + JSON.stringify(label));
+  assert(label.includes("…") && label.includes("7 more items"),
+    "preview reports a '… 7 more items' remainder: " + JSON.stringify(label));
   MDPJSONTree.clearActive();
 }
 
@@ -575,6 +646,207 @@ section("15. expandAll / collapseAll via controller");
   ctrl.expandAll();
   assert(!rootToggle.classList.contains("json-collapsed"), "root expanded after expandAll");
 
+  MDPJSONTree.clearActive();
+}
+
+// 16. P5: pathToHuman produces readable JSON paths
+section("16. P5 pathToHuman produces readable JSON paths");
+{
+  // Build a tree with mixed object and array nesting.
+  const src = '{"users":[{"name":"A","scores":[10,20]},{"name":"B"}]}';
+  const { host } = mountAndFlush(src, "t16");
+
+  // Container rows should have a title attribute.
+  const containerRows = host.querySelectorAll(".json-container");
+  assert(containerRows.length >= 1, "at least one container row exists");
+  for (const cr of containerRows) {
+    const t = cr.getAttribute("title");
+    assert(t != null, "container row has title: " + JSON.stringify(t));
+    assert(t.indexOf("$") === 0 || t.indexOf("$") !== -1,
+      "title contains a path: " + JSON.stringify(t));
+  }
+
+  // Leaf rows should also have a title with the path.
+  const leafRows = host.querySelectorAll(".json-leaf");
+  assert(leafRows.length >= 1, "at least one leaf row exists");
+  for (const lr of leafRows) {
+    const t = lr.getAttribute("title");
+    assert(t != null, "leaf row has title: " + JSON.stringify(t));
+  }
+
+  // Verify a specific path: the root object should have "$.users" in a child's title.
+  const allRows = host.querySelectorAll(".json-row");
+  const hasUsersPath = allRows.some(r => (r.getAttribute("title") || "").includes(".users"));
+  assert(hasUsersPath, "some row title contains '.users' path");
+
+  MDPJSONTree.clearActive();
+}
+
+// 17. P5: deep containers get a depth badge
+section("17. P5 depth badge for deep containers");
+{
+  // Depth 0: root, 1: a, 2: b, 3: c, 4: d → depth 4 >= DEEP_BADGE_DEPTH
+  const src = '{"a":{"b":{"c":{"d":{"e":1}}}}}';
+  const { host, ctrl } = mountAndFlush(src, "t17");
+  ctrl.expandAll();
+  drainFrames();
+
+  const badges = host.querySelectorAll(".json-depth-badge");
+  // DEEP_BADGE_DEPTH = 4, so depth-4 container "d" should have a badge.
+  assert(badges.length >= 1, "at least one depth badge at depth ≥ 4 (got " + badges.length + ")");
+  // The badge should show the depth number as text.
+  const badgeText = badges[0].textContent;
+  assert(badgeText === "4", "badge shows depth 4 (got " + JSON.stringify(badgeText) + ")");
+
+  MDPJSONTree.clearActive();
+}
+
+// 18. P6: collapse preserves childrenEl (hidden, not removed)
+section("18. P6 collapse hides children (preserves DOM)");
+{
+  const src = '{"a":{"b":1,"c":2}}';
+  const { host } = mountAndFlush(src, "t18");
+
+  // Root is expanded by default; find its childrenEl.
+  const containerRows = host.querySelectorAll(".json-container");
+  assert(containerRows.length >= 1, "container row exists");
+  const rootContainer = containerRows[0];
+  const childrenEl = rootContainer.querySelector(".json-children");
+  assert(!!childrenEl, "childrenEl exists when expanded");
+
+  // Collapse via click on the toggle.
+  const toggle = rootContainer.querySelector(".json-toggle");
+  toggle.click();
+  assert(toggle.classList.contains("json-collapsed"), "toggle is collapsed after click");
+
+  // P6: childrenEl should still be in the DOM but hidden.
+  const stillThere = rootContainer.querySelector(".json-children");
+  assert(!!stillThere, "childrenEl still in DOM after collapse (P6 preserve)");
+  assert(stillThere.hidden === true, "childrenEl is hidden after collapse");
+
+  // Re-expand: childrenEl should be unhidden instantly.
+  toggle.click();
+  assert(!toggle.classList.contains("json-collapsed"), "re-expanded after second click");
+  const unhidden = rootContainer.querySelector(".json-children");
+  assert(unhidden.hidden === false, "childrenEl is unhidden after re-expand");
+
+  MDPJSONTree.clearActive();
+}
+
+// 19. P6: sentinel is created for containers exceeding initial cap
+section("19. P6 sentinel for containers exceeding cap");
+{
+  // Create an object with enough keys to exceed the initial cap.
+  // computeInitialCap with innerHeight=800, ROW_HEIGHT_ESTIMATE=22 → ~37.
+  // Use 50 keys to ensure overflow.
+  var keys = [];
+  for (var k = 0; k < 50; k++) keys.push('"k' + k + '":' + k);
+  var src = "{" + keys.join(",") + "}";
+  const { host } = mountAndFlush(src, "t19");
+
+  // The root container has 50 keys, cap is ~37, so a sentinel should exist.
+  const sentinels = host.querySelectorAll(".json-sentinel");
+  assert(sentinels.length >= 1, "sentinel created for container exceeding cap (got " + sentinels.length + ")");
+
+  // Without IntersectionObserver (test env), a "Show more" fallback should also exist.
+  const showMore = host.querySelectorAll(".json-show-more");
+  assert(showMore.length >= 1, "fallback 'Show more' button exists when IO unavailable (got " + showMore.length + ")");
+
+  MDPJSONTree.clearActive();
+}
+
+// 20. P6: dynamic cap is viewport-based
+section("20. P6 dynamic cap is viewport-based");
+{
+  // With innerHeight=800, ROW_HEIGHT_ESTIMATE=22 → cap ≈ 37.
+  // Use exactly 30 keys: all should be loaded (30 < 37).
+  var keys30 = [];
+  for (var k = 0; k < 30; k++) keys30.push('"a' + k + '":' + k);
+  var src30 = "{" + keys30.join(",") + "}";
+  const { host: h30 } = mountAndFlush(src30, "t20a");
+  const rows30 = h30.querySelectorAll(".json-leaf");
+  assert(rows30.length === 30, "30 keys all rendered when under cap (got " + rows30.length + ")");
+  MDPJSONTree.clearActive();
+
+  // Use 50 keys: some should be deferred (50 > 37).
+  var keys50 = [];
+  for (var k2 = 0; k2 < 50; k2++) keys50.push('"b' + k2 + '":' + k2);
+  var src50 = "{" + keys50.join(",") + "}";
+  const { host: h50 } = mountAndFlush(src50, "t20b");
+  const rows50 = h50.querySelectorAll(".json-leaf");
+  // Cap is ~37, so not all 50 should be rendered yet.
+  assert(rows50.length < 50, "not all 50 rendered when over cap (got " + rows50.length + ")");
+  assert(rows50.length > 0, "some rows rendered");
+  MDPJSONTree.clearActive();
+}
+
+// 21. P5: title on array item rows shows index path
+section("21. P5 title on array item rows shows index path");
+{
+  const src = '[{"a":1},{"b":2}]';
+  const { host } = mountAndFlush(src, "t21");
+  const items = host.querySelectorAll(".json-item");
+  assert(items.length >= 2, "2 array item rows (got " + items.length + ")");
+  // First item title should contain $[0]
+  const t0 = items[0].getAttribute("title");
+  assert(t0 != null && t0.indexOf("[0]") !== -1, "first item title contains [0]: " + JSON.stringify(t0));
+  // Second item title should contain $[1]
+  const t1 = items[1].getAttribute("title");
+  assert(t1 != null && t1.indexOf("[1]") !== -1, "second item title contains [1]: " + JSON.stringify(t1));
+  MDPJSONTree.clearActive();
+}
+
+// 22. P6: expandAll unhides previously collapsed containers
+section("22. P6 expandAll unhides previously collapsed containers");
+{
+  const src = '{"a":{"b":{"c":{"d":1}}}}';
+  const { host, ctrl } = mountAndFlush(src, "t22");
+
+  // Default: depth 0,1,2 open; depth 3 closed.
+  // Collapse the root (which hides everything).
+  ctrl.collapseAll();
+  const containerRows = host.querySelectorAll(".json-container");
+  // All containers' childrenEl should be hidden or null.
+  let allHidden = true;
+  for (const cr of containerRows) {
+    const ce = cr.querySelector(".json-children");
+    if (ce && ce.hidden === false) { allHidden = false; break; }
+  }
+  assert(allHidden, "all children hidden after collapseAll");
+
+  // expandAll should unhide and rebuild.
+  ctrl.expandAll();
+  drainFrames();
+  // Root should be expanded and visible.
+  const rootToggle = host.querySelectorAll(".json-toggle")[0];
+  assert(!rootToggle.classList.contains("json-collapsed"), "root expanded after expandAll");
+
+  MDPJSONTree.clearActive();
+}
+
+// 23. P6: sentinel is removed when container is fully loaded
+section("23. P6 sentinel removed when container fully loaded");
+{
+  // 5 keys: well under the cap, so all loaded, no sentinel needed.
+  const src = '{"a":1,"b":2,"c":3,"d":4,"e":5}';
+  const { host } = mountAndFlush(src, "t23");
+  const sentinels = host.querySelectorAll(".json-sentinel");
+  assert(sentinels.length === 0, "no sentinel when all children loaded (got " + sentinels.length + ")");
+  MDPJSONTree.clearActive();
+}
+
+// 24. P5: special-character keys use bracket notation in path
+section("24. P5 special-character keys use bracket notation in path");
+{
+  // Key with dots and spaces should use bracket notation in the human path.
+  const src = '{"a.b c":1,"normal":2}';
+  const { host } = mountAndFlush(src, "t24");
+  const rows = host.querySelectorAll(".json-row");
+  const hasBracketPath = rows.some(r => {
+    const t = r.getAttribute("title") || "";
+    return t.includes('"a.b c"');
+  });
+  assert(hasBracketPath, "special key uses bracket notation in title");
   MDPJSONTree.clearActive();
 }
 

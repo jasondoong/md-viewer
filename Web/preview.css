@@ -232,6 +232,57 @@ html, body {
   text-decoration: underline;
 }
 
+/* ---- Phase 2: depth stripes, container type colors, collapsed preview ---- */
+
+/* Subtle background stripe per nesting level so deeper levels stand out.
+   Descendant combinators approximate depth: each extra .json-children adds a
+   level, and the longest matching selector wins, so depth 2/3/4+ get
+   progressively stronger stripes (capped at the deepest rule). */
+.markdown-body .json-tree .json-children .json-children .json-row {
+  background: rgba(128, 128, 128, 0.05);
+}
+.markdown-body .json-tree .json-children .json-children .json-children .json-row {
+  background: rgba(128, 128, 128, 0.10);
+}
+.markdown-body .json-tree .json-children .json-children .json-children .json-children .json-row {
+  background: rgba(128, 128, 128, 0.14);
+}
+
+/* Objects and arrays get distinct bracket colors (the arrow stays neutral via
+   its own explicit color, so this does not affect the toggle triangle). */
+.markdown-body .json-tree .json-toggle.json-object {
+  color: #005cc5;
+}
+.markdown-body .json-tree .json-toggle.json-array {
+  color: #d73a49;
+}
+
+/* The "… N more" remainder in a collapsed preview is de-emphasized. */
+.markdown-body .json-tree .json-more {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* ---- Phase 3: depth badge, auto-load sentinel ---- */
+
+/* P5: depth badge for deep containers (depth >= DEEP_BADGE_DEPTH). */
+.markdown-body .json-tree .json-depth-badge {
+  display: inline-block;
+  font-size: 0.6em;
+  color: #888;
+  opacity: 0.55;
+  margin-left: 6px;
+  vertical-align: middle;
+  font-style: normal;
+  user-select: none;
+}
+
+/* P6: sentinel sits at the bottom of a container's children to trigger
+   IntersectionObserver auto-loading.  Visually minimal. */
+.markdown-body .json-tree .json-sentinel {
+  min-height: 1px;
+}
+
 /* Semantic JSON token colors (light) */
 .markdown-body .json-tree .json-key {
   color: #005cc5;
@@ -323,6 +374,25 @@ html, body {
   }
   .markdown-body .json-tree .json-toggle:hover {
     background: rgba(255, 255, 255, 0.06);
+  }
+  /* Dark-theme depth stripes + container type colors */
+  .markdown-body .json-tree .json-children .json-children .json-row {
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .markdown-body .json-tree .json-children .json-children .json-children .json-row {
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .markdown-body .json-tree .json-children .json-children .json-children .json-children .json-row {
+    background: rgba(255, 255, 255, 0.11);
+  }
+  .markdown-body .json-tree .json-toggle.json-object {
+    color: #79c0ff;
+  }
+  .markdown-body .json-tree .json-toggle.json-array {
+    color: #ff7b72;
+  }
+  .markdown-body .json-tree .json-depth-badge {
+    color: #8b949e;
   }
   .markdown-body .json-tree .json-show-more {
     color: #58a6ff;

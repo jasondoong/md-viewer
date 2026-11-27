@@ -1,7 +1,7 @@
 // Web/json-tree.js
 //
-// Shared, offline JSON tree renderer for the preview page (phase 2: tree +
-// folding). Loaded as a plain script (no imports, no network) AFTER
+// Shared, offline JSON tree renderer for the preview page.
+// Loaded as a plain script (no imports, no network) AFTER
 // json-preview.js and BEFORE preview.js in index.html. It exposes:
 //
 //   globalThis.MDPJSONTree.mount(host, node, options) -> controller
@@ -40,34 +40,51 @@
 //     the tree.
 //   * Each container is an actionable button carrying its type, child count and
 //     (for entries) its key, with aria-expanded and an aria-label.
+//   * Collapsed containers preview their first few keys/values (with a "… N
+//     more" remainder) so the reader sees what is inside without expanding.
 //   * Default fold: containers at depth 0..2 open, depth 3+ closed.
-//   * Children are created ON DEMAND in requestAnimationFrame batches: a bounded
-//     number of rows per frame, a per-container "Show more" for wide siblings,
-//     and a global DOM-row cap after which a clear "limit" indication is shown.
-//     Work is cancelled on disposal, on parent collapse, and on bulk collapse.
+//   * Children are created ON DEMAND in requestAnimationFrame batches.
 //   * Keyboard: when the tree holds focus, Up/Down move between visible rows
 //     (containers and focusable leaves incl. empty containers), Right expands
-//     and Left collapses the focused container. Ordinary text selection and
-//     input fields keep their native behaviour; modified keys (incl. ⌘A) are
-//     never swallowed.
+//     and Left collapses the focused container.
 //   * Fold overrides are stored in memory, keyed by documentID and an
-//     unambiguous tree path (decoded key + occurrence for object entries, index
-//     for array items, with the container type participating in matching). On a
-//     valid same-document reload, removed or type-changed paths are discarded
-//     even when hidden; new paths use the depth default. State is never reused
-//     across identities (including a fresh pasted identity). Nothing is written
-//     to disk.
+//     unambiguous tree path. State is never reused across identities.
+//
+// Phase-3 additions:
+//   * P5 — Path hints: every container and leaf row carries a native `title`
+//     tooltip showing its JSON path (e.g. $.users[0].name). Deep containers
+//     (depth >= DEEP_BADGE_DEPTH) show a small depth badge.
+//   * P6 — Large-data enhancements:
+//     - Initial per-container cap is computed from viewport height instead of a
+//       fixed constant.
+//     - IntersectionObserver replaces the "Show more" button: when a sentinel
+//       near the bottom of a container scrolls into view, the next batch of
+//       children loads automatically. A "Show more" button is used as a
+//       fallback when IntersectionObserver is unavailable.
+//     - Collapsing a container HIDES its children (hidden attribute) instead of
+//       removing them from the DOM, so re-expanding is instant. A total DOM-row
+//       cap (MAX_TOTAL_ROWS) prevents unbounded memory growth; the deepest hidden
+//       containers are garbage-collected first.
 
 (function (root) {
   "use strict";
 
-  // ---- Phase-2 tunables -------------------------------------------------
-  var AUTO_OPEN_DEPTH = 2;       // containers at depth 0..2 open; depth >=3 closed
-  var CHILDREN_BATCH = 48;       // child rows built per animation frame
-  var PER_CONTAINER_CAP = 200;   // children a container shows before "Show more"
-  var DEFAULT_MAX_ROWS = 1200;   // global backstop on simultaneously-rendered rows
-  var MAX_OVERRIDES = 4096;      // fold-override cap per document identity
-  var PATH_SEP = "\u001f";       // JSON.stringify escapes control characters in keys.
+  // ---- Tunables ---------------------------------------------------------
+  var AUTO_OPEN_DEPTH = 2;        // containers at depth 0..2 open; depth >=3 closed
+  var CHILDREN_BATCH = 48;        // child rows built per animation frame
+  var MAX_CONTAINER_CAP = 500;    // hard upper bound on a single container's cap
+  var ROW_HEIGHT_ESTIMATE = 22;   // px, typical for 13px monospace w/ line-height 1.4
+  var DEFAULT_MAX_ROWS = 1200;    // global cap on simultaneously-visible rows
+  var MAX_TOTAL_ROWS = 5000;      // total DOM rows (visible + hidden) before GC
+  var DEEP_BADGE_DEPTH = 4;       // show a depth badge at nesting >= this
+  var MAX_OVERRIDES = 4096;       // fold-override cap per document identity
+  var PREVIEW_COUNT = 3;          // keys/items previewed inside a collapsed container
+  var PREVIEW_VALUE_LEN = 20;     // max chars of a leaf value in a collapsed preview
+  var PATH_SEP = "\u001f";        // JSON.stringify escapes control characters in keys.
+  var IO_ROOT_MARGIN = "200px";   // load next batch 200px before sentinel enters view
+
+  // Detect IntersectionObserver support once at module load.
+  var HAS_IO = (typeof IntersectionObserver !== "undefined");
 
   // In-memory fold overrides, keyed by documentID -> { overrides: Map, ... }.
   // Never written to disk. A new identity (file or paste) gets its own map, so
@@ -78,6 +95,9 @@
   // The single live tree the keyboard handler and the native bridge act on.
   var moduleActive = null;
   var keydownBound = false;
+
+  // Shared IntersectionObserver for all tree sentinels.
+  var sharedObserver = null;
 
   // ---- Scheduling (read rAF dynamically so a test override applies) ------
   function scheduleFrame(cb) {
@@ -90,6 +110,30 @@
     var fn = (typeof window !== "undefined" && window.cancelAnimationFrame)
       || (typeof cancelAnimationFrame !== "undefined" ? cancelAnimationFrame : null);
     if (fn) fn(id); else clearTimeout(id);
+  }
+
+  // ---- Observer helpers (P6) -------------------------------------------
+  function getObserver() {
+    if (!HAS_IO) return null;
+    if (sharedObserver) return sharedObserver;
+    sharedObserver = new IntersectionObserver(function (entries) {
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].isIntersecting) {
+          var ctrl = entries[i].target._ctrl;
+          if (ctrl) loadMore(ctrl);
+        }
+      }
+    }, { rootMargin: IO_ROOT_MARGIN });
+    return sharedObserver;
+  }
+
+  function observeSentinel(sentinel) {
+    var obs = getObserver();
+    if (obs && sentinel) obs.observe(sentinel);
+  }
+  function unobserveSentinel(sentinel) {
+    var obs = getObserver();
+    if (obs && sentinel) obs.unobserve(sentinel);
   }
 
   // ---- Path / occurrence helpers ----------------------------------------
@@ -111,6 +155,91 @@
     var prefix = parentKey + PATH_SEP;
     return pathKey === parentKey ||
       (pathKey.length > parentKey.length && pathKey.slice(0, prefix.length) === prefix);
+  }
+
+  // P5: convert an internal pathKey to a human-readable JSON path like
+  // $.users[0].profile.  Uses JSON.parse for the key segment (the segment
+  // encodes a JSON-quoted string).  Falls back to a raw slice on parse error.
+  function pathToHuman(pathKey) {
+    if (!pathKey) return "$";
+    var parts = pathKey.split(PATH_SEP);
+    var result = "$";
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i];
+      if (p.charCodeAt(0) === 111) { // 'o'
+        var colonIdx = p.lastIndexOf(":");
+        var jsonStr = p.slice(2, colonIdx);
+        var key;
+        try { key = JSON.parse(jsonStr); } catch (e) { key = p.slice(2, colonIdx); }
+        if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(String(key))) {
+          result += "." + key;
+        } else {
+          result += "[" + JSON.stringify(String(key)) + "]";
+        }
+      } else {
+        // 'a:N'
+        result += "[" + p.slice(2) + "]";
+      }
+    }
+    return result;
+  }
+
+  // P6: compute the initial per-container cap from viewport height.
+  function computeInitialCap() {
+    var vh = (typeof window !== "undefined" && window.innerHeight)
+      ? window.innerHeight : 800;
+    var cap = Math.ceil(vh / ROW_HEIGHT_ESTIMATE);
+    return Math.max(10, Math.min(cap, MAX_CONTAINER_CAP));
+  }
+
+  // P6: append a child row before the sentinel (if present) so the sentinel
+  // stays at the bottom of the children container.
+  function appendChildRow(c, row) {
+    if (c.sentinelEl && c.sentinelEl.parentNode === c.childrenEl) {
+      c.childrenEl.insertBefore(row, c.sentinelEl);
+    } else {
+      c.childrenEl.appendChild(row);
+    }
+  }
+
+  // P6: garbage-collect the deepest hidden containers when total DOM rows
+  // exceed MAX_TOTAL_ROWS.  Called after collapse / expand / bulk operations.
+  function gcHiddenContainers(tree) {
+    var allRows = tree.host.querySelectorAll('.json-row').length;
+    if (allRows <= MAX_TOTAL_ROWS) return;
+    var overBy = allRows - MAX_TOTAL_ROWS;
+    // Collect hidden containers, deepest first.
+    var hidden = [];
+    for (var i = 0; i < tree.controllers.length; i++) {
+      var c = tree.controllers[i];
+      if (!c.expanded && c.childrenEl && c.childrenEl.hidden) {
+        hidden.push(c);
+      }
+    }
+    hidden.sort(function (a, b) { return b.depth - a.depth; });
+    for (var j = 0; j < hidden.length && overBy > 0; j++) {
+      var c2 = hidden[j];
+      var rows = c2.childrenEl.querySelectorAll('.json-row').length;
+      // Unobserve and remove the sentinel.
+      if (c2.sentinelEl) {
+        unobserveSentinel(c2.sentinelEl);
+        c2.sentinelEl = null;
+      }
+      if (c2.showMoreEl) c2.showMoreEl = null;
+      if (c2.childrenEl && c2.childrenEl.parentNode) {
+        c2.rowEl.removeChild(c2.childrenEl);
+      }
+      c2.childrenEl = null;
+      c2.built = 0;
+      c2.cap = computeInitialCap();
+      c2.occCounts = null;
+      c2.renderedRows = 0;
+      // Drop descendant controllers (their DOM is gone).
+      tree.controllers = tree.controllers.filter(function (child) {
+        return child === c2 || !isDescendant(child.pathKey, c2.pathKey);
+      });
+      overBy -= rows;
+    }
   }
 
   // ---- Fold-override store (per document identity) ----------------------
@@ -229,6 +358,34 @@
     parent.appendChild(doc.createTextNode(text));
   }
 
+  // A short, single-line preview of a value for a COLLAPSED container label.
+  // Nested containers collapse to "{ … N keys }" / "[ … N items ]"; basic values
+  // show their original token truncated to PREVIEW_VALUE_LEN. Everything is a
+  // text node, so markup in a string or key stays inert. Empty containers show
+  // just "{}" / "[]". Appends text directly to `parent`.
+  function appendValuePreview(parent, doc, node, maxLen) {
+    if (!node || node.type !== "object" && node.type !== "array") {
+      var raw = node && node.raw != null ? String(node.raw) : "";
+      if (raw.length > maxLen) raw = raw.slice(0, maxLen) + "\u2026";
+      appendText(parent, doc, raw);
+      return;
+    }
+    var count = node.type === "object" ? (node.entries ? node.entries.length : 0)
+                                      : (node.items ? node.items.length : 0);
+    var open = node.type === "object" ? "{" : "[";
+    var close = node.type === "object" ? "}" : "]";
+    appendText(parent, doc, open);
+    if (count > 0) {
+      var unit = node.type === "object"
+        ? (count === 1 ? "key" : "keys") : (count === 1 ? "item" : "items");
+      appendText(parent, doc, "\u2026 " + count + " " + unit);
+    }
+    appendText(parent, doc, close);
+  }
+
+  function pluralKeys(n) { return n === 1 ? "key" : "keys"; }
+  function pluralItems(n) { return n === 1 ? "item" : "items"; }
+
   // ---- Tree instance ----------------------------------------------------
   function createTree(host, node, doc, options) {
     return {
@@ -246,7 +403,10 @@
       controllers: [],      // all live container controllers
       frameId: null,
       expandAllMode: false,
-      state: docState(options.documentID)
+      state: docState(options.documentID),
+      limitEl: null,
+      rootEl: null,
+      toolbar: null
     };
   }
 
@@ -270,11 +430,18 @@
     var c = {
       tree: tree, node: node, type: type, depth: depth, pathKey: pathKey,
       name: name, childCount: childCount,
-      built: 0, cap: PER_CONTAINER_CAP, expanded: false,
+      built: 0, cap: computeInitialCap(), expanded: false,
       rowEl: null, toggleEl: null, childrenEl: null, showMoreEl: null,
+      sentinelEl: null,
       occCounts: null, renderedRows: 0
     };
     var row = makeEl(doc, "div", "json-row json-container json-" + type);
+
+    // P5: native tooltip with human-readable path + type + count.
+    var unit = type === "object" ? pluralKeys(childCount) : pluralItems(childCount);
+    var title = pathToHuman(pathKey) + " \u2014 " + type + ", " + childCount + " " + unit;
+    setAttribute(row, "title", title);
+
     var btn = makeEl(doc, "button", "json-toggle json-" + type);
     btn.type = "button";
     setAttribute(btn, "tabindex", "0");
@@ -292,18 +459,34 @@
     renderCollapsedLabel(c);
 
     row.appendChild(btn);
+
+    // P5: depth badge for deep containers.
+    if (depth >= DEEP_BADGE_DEPTH) {
+      var badge = makeEl(doc, "span", "json-depth-badge");
+      appendText(badge, doc, String(depth));
+      row.appendChild(badge);
+    }
+
     tree.controllers.push(c);
     tree.rowsUsed++;
 
     if (expanded) {
       c.childrenEl = makeEl(doc, "div", "json-children");
       row.appendChild(c.childrenEl);
-      c.cap = tree.expandAllMode ? c.childCount : PER_CONTAINER_CAP;
+      c.cap = tree.expandAllMode ? c.childCount : computeInitialCap();
+
+      // P6: add sentinel if there's more to load beyond the initial cap.
+      if (c.childCount > c.cap) {
+        c.sentinelEl = makeEl(doc, "div", "json-sentinel");
+        c.sentinelEl._ctrl = c;
+        c.childrenEl.appendChild(c.sentinelEl);
+        observeSentinel(c.sentinelEl);
+      }
+
       queueContainer(tree, c);
-    } else if (childCount === 0) {
-      var closePunct = type === "object" ? "}" : "]";
-      appendText(btn, doc, closePunct);
     }
+    // A collapsed empty container already shows "{}" / "[]" via
+    // renderCollapsedLabel, so no extra closing bracket is needed here.
     return c;
   }
 
@@ -312,8 +495,11 @@
     c.toggleEl.className = "json-toggle json-" + c.type + (expanded ? "" : " json-collapsed");
   }
 
-  // The button's visible label. Collapsed: "{ … N keys }" / "[ … N items ]".
-  // Expanded: just the opening bracket (children render below).
+  // The button's visible label. Collapsed: the opening bracket, a short preview
+  // of the first PREVIEW_COUNT keys/items (with a "… N more" remainder when
+  // there are more), then the closing bracket. Expanded: just the opening
+  // bracket (children render below). The accessible name always reports the
+  // full count, independent of the preview.
   function renderCollapsedLabel(c) {
     var btn = c.toggleEl;
     while (btn.firstChild) btn.removeChild(btn.firstChild);
@@ -321,14 +507,42 @@
     var openPunct = c.type === "object" ? "{" : "[";
     var closePunct = c.type === "object" ? "}" : "]";
     appendText(btn, doc, openPunct);
-    if (!c.expanded) {
-      var count = makeEl(doc, "span", "json-count");
-      var unit = c.type === "object" ? (c.childCount === 1 ? "key" : "keys")
-                                    : (c.childCount === 1 ? "item" : "items");
-      appendText(count, doc, c.childCount + " " + unit);
-      btn.appendChild(count);
-      appendText(btn, doc, closePunct);
+    if (!c.expanded && c.childCount > 0) {
+      var shown, total, i;
+      if (c.type === "object") {
+        var entries = c.node.entries || [];
+        total = entries.length;
+        shown = Math.min(total, PREVIEW_COUNT);
+        for (i = 0; i < shown; i++) {
+          var e = entries[i];
+          var keySpan = makeEl(doc, "span", "json-key");
+          appendText(keySpan, doc, e.rawKey);
+          btn.appendChild(keySpan);
+          appendText(btn, doc, ": ");
+          appendValuePreview(btn, doc, e.value, PREVIEW_VALUE_LEN);
+          if (i + 1 < shown) appendText(btn, doc, ", ");
+        }
+        if (total > shown) {
+          var moreObj = makeEl(doc, "span", "json-count json-more");
+          appendText(moreObj, doc, ", \u2026 " + (total - shown) + " more " + pluralKeys(total - shown));
+          btn.appendChild(moreObj);
+        }
+      } else {
+        var items = c.node.items || [];
+        total = items.length;
+        shown = Math.min(total, PREVIEW_COUNT);
+        for (i = 0; i < shown; i++) {
+          appendValuePreview(btn, doc, items[i], PREVIEW_VALUE_LEN);
+          if (i + 1 < shown) appendText(btn, doc, ", ");
+        }
+        if (total > shown) {
+          var moreArr = makeEl(doc, "span", "json-count json-more");
+          appendText(moreArr, doc, ", \u2026 " + (total - shown) + " more " + pluralItems(total - shown));
+          btn.appendChild(moreArr);
+        }
+      }
     }
+    appendText(btn, doc, closePunct);
     // Accessible name: type + count + key/position, independent of fold state.
     var name = c.type === "object" ? "Object" : "Array";
     name += ", " + c.childCount + (c.type === "object" ? (c.childCount === 1 ? " key" : " keys")
@@ -354,6 +568,15 @@
         var seg = objectSegment(key, o);
         var childPath = joinPath(c.pathKey, seg);
         var row = makeEl(doc, "div", "json-row json-leaf json-entry");
+
+        // P5: title on leaf rows.
+        var leafNode = e.value;
+        var leafTitle = pathToHuman(childPath);
+        if (leafNode.type !== "object" && leafNode.type !== "array") {
+          leafTitle += " : " + leafNode.type;
+        }
+        setAttribute(row, "title", leafTitle);
+
         var keySpan = makeEl(doc, "span", "json-key");
         appendText(keySpan, doc, e.rawKey);
         row.appendChild(keySpan);
@@ -368,7 +591,7 @@
           appendLeafValue(row, doc, child);
         }
         if (i + 1 < n) appendText(row, doc, ",");
-        c.childrenEl.appendChild(row);
+        appendChildRow(c, row);
         tree.rowsUsed++;
         c.renderedRows++;
         c.built++;
@@ -383,6 +606,14 @@
         var aSeg = arraySegment(j);
         var aPath = joinPath(c.pathKey, aSeg);
         var row2 = makeEl(doc, "div", "json-row json-leaf json-item");
+
+        // P5: title on array item rows.
+        var itemTitle = pathToHuman(aPath);
+        if (child2.type !== "object" && child2.type !== "array") {
+          itemTitle += " : " + child2.type;
+        }
+        setAttribute(row2, "title", itemTitle);
+
         if (hasChildren(child2)) {
           var cc2 = makeContainerRow(tree, child2, c.depth + 1, aPath, "index " + j);
           row2.appendChild(cc2.rowEl);
@@ -391,7 +622,7 @@
           appendLeafValue(row2, doc, child2);
         }
         if (j + 1 < m) appendText(row2, doc, ",");
-        c.childrenEl.appendChild(row2);
+        appendChildRow(c, row2);
         tree.rowsUsed++;
         c.renderedRows++;
         c.built++;
@@ -405,32 +636,54 @@
     return made;
   }
 
-  // Show / update / remove the "Show more" button for a container that has
-  // children left to load and is not globally capped.
+  // P6: Show / update / remove the sentinel (auto-load) and/or "Show more"
+  // (fallback when IO is unavailable) for a container with remaining children.
   function finalizeContainer(tree, c) {
     var hasMore = c.built < c.childCount;
     if (hasMore && !tree.capped) {
-      if (!c.showMoreEl) {
-        var b = makeEl(tree.doc, "button", "json-show-more");
-        b.type = "button";
-        setAttribute(b, "tabindex", "0");
-        b._ctrl = c;
-        b.addEventListener("click", function () { loadMore(c); });
-        c.childrenEl.appendChild(b);
-        c.showMoreEl = b;
+      // Ensure sentinel exists for auto-loading.
+      if (!c.sentinelEl) {
+        c.sentinelEl = makeEl(tree.doc, "div", "json-sentinel");
+        c.sentinelEl._ctrl = c;
+        c.childrenEl.appendChild(c.sentinelEl);
+        observeSentinel(c.sentinelEl);
       }
-      var remaining = c.childCount - c.built;
-      c.showMoreEl.textContent = "Show more (" + remaining + " more)";
-    } else if (c.showMoreEl) {
-      c.childrenEl.removeChild(c.showMoreEl);
-      c.showMoreEl = null;
+      // Fallback "Show more" button when IntersectionObserver is unavailable.
+      if (!HAS_IO) {
+        if (!c.showMoreEl) {
+          var b = makeEl(tree.doc, "button", "json-show-more");
+          b.type = "button";
+          setAttribute(b, "tabindex", "0");
+          b._ctrl = c;
+          b.addEventListener("click", function () { loadMore(c); });
+          c.childrenEl.appendChild(b);
+          c.showMoreEl = b;
+        }
+        var remaining = c.childCount - c.built;
+        c.showMoreEl.textContent = "Show more (" + remaining + " more)";
+      } else if (c.showMoreEl) {
+        // IO available: remove any leftover "Show more" button.
+        if (c.showMoreEl.parentNode) c.showMoreEl.parentNode.removeChild(c.showMoreEl);
+        c.showMoreEl = null;
+      }
+    } else {
+      // Fully loaded or globally capped: clean up sentinel / "Show more".
+      if (c.sentinelEl) {
+        unobserveSentinel(c.sentinelEl);
+        if (c.sentinelEl.parentNode) c.sentinelEl.parentNode.removeChild(c.sentinelEl);
+        c.sentinelEl = null;
+      }
+      if (c.showMoreEl) {
+        if (c.showMoreEl.parentNode) c.showMoreEl.parentNode.removeChild(c.showMoreEl);
+        c.showMoreEl = null;
+      }
     }
   }
 
   function loadMore(c) {
     var tree = c.tree;
     if (!tree.alive || tree.capped) return;
-    c.cap = Math.min(c.childCount, c.cap + PER_CONTAINER_CAP);
+    c.cap = Math.min(c.childCount, c.cap + computeInitialCap());
     queueContainer(tree, c);
   }
 
@@ -455,7 +708,8 @@
     while (i < tree.pending.length && budget > 0 && tree.alive) {
       var c = tree.pending[i];
       // Skip containers that were collapsed or destroyed (row removed from DOM).
-      if (!c.expanded || !c.childrenEl || !c.childrenEl.parentNode) {
+      // P6: also skip hidden containers (collapsed but children preserved).
+      if (!c.expanded || !c.childrenEl || !c.childrenEl.parentNode || c.childrenEl.hidden) {
         tree.pending.splice(i, 1);
         continue;
       }
@@ -479,6 +733,10 @@
     } else if (tree.capped && !prevCapped) {
       showLimitStatus(tree);
     }
+    // Keep the visible-row count authoritative after each batch so the cap and
+    // the "limit" status reflect the real on-screen state (not the within-frame
+    // running estimate, which can over-count nested hidden containers).
+    if (tree.alive) recomputeRowsUsed(tree);
     if (typeof tree.onProgress === "function") tree.onProgress();
   }
 
@@ -487,9 +745,32 @@
     var el = makeEl(tree.doc, "div", "json-limit");
     setAttribute(el, "role", "status");
     appendText(el, tree.doc,
-      "Reached the size limit for this preview; use “Show raw source” for the full document.");
+      "Reached the size limit for this preview; use \u201CShow raw source\u201D for the full document.");
     tree.host.insertBefore(el, tree.host.firstChild);
     tree.limitEl = el;
+  }
+
+  // P6: authoritative visible-row count. A row counts toward the cap only when
+  // it is actually visible, i.e. it has no hidden ancestor .json-children. This
+  // is recomputed after any fold change so that nested hidden containers never
+  // double-count toward the cap. It also reconciles the capped flag and the
+  // "limit" status with the current visible state.
+  function recomputeRowsUsed(tree) {
+    var rows = tree.host.querySelectorAll(".json-row");
+    var count = 0;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].closest("[hidden]")) continue;
+      count++;
+    }
+    tree.rowsUsed = count;
+    tree.capped = count >= tree.maxRows;
+    if (tree.capped) {
+      showLimitStatus(tree);
+    } else if (tree.limitEl) {
+      if (tree.limitEl.remove) tree.limitEl.remove();
+      else if (tree.limitEl.parentNode) tree.limitEl.parentNode.removeChild(tree.limitEl);
+      tree.limitEl = null;
+    }
   }
 
   // Expand / collapse a single container, recording the manual override.
@@ -500,35 +781,46 @@
     setExpandedAttr(c, expanded);
     renderCollapsedLabel(c);
     if (expanded) {
-      if (!c.childrenEl) {
+      if (c.childrenEl && c.childrenEl.hidden) {
+        // P6: unhide preserved children (instant re-expand).
+        c.childrenEl.hidden = false;
+        // Resume building if not yet complete.
+        if (c.built < c.childCount && c.built < c.cap) {
+          queueContainer(tree, c);
+        }
+      } else if (!c.childrenEl) {
         c.childrenEl = makeEl(tree.doc, "div", "json-children");
         c.rowEl.appendChild(c.childrenEl);
         c.built = 0;
-        c.cap = PER_CONTAINER_CAP;
+        c.cap = computeInitialCap();
         c.showMoreEl = null;
+        c.sentinelEl = null;
+        if (c.childCount > c.cap) {
+          c.sentinelEl = makeEl(tree.doc, "div", "json-sentinel");
+          c.sentinelEl._ctrl = c;
+          c.childrenEl.appendChild(c.sentinelEl);
+          observeSentinel(c.sentinelEl);
+        }
+        queueContainer(tree, c);
       }
-      queueContainer(tree, c);
     } else {
       collapseContainer(c);
     }
+    // Rows added/removed are counted authoritatively from the DOM so nested
+    // hidden containers never double-count toward the cap.
+    recomputeRowsUsed(tree);
     recordOverride(tree, c, expanded);
   }
 
-  // Remove a container's rendered children and cancel any pending work for it
-  // and its descendants (they leave the DOM and are dropped from pending).
+  // P6: collapse HIDES children instead of removing them (fast re-expand).
+  // The caller (setExpanded) reconciles rowsUsed via recomputeRowsUsed; this
+  // only flips the hidden flag and prunes the pending queue.
   function collapseContainer(c) {
     var tree = c.tree;
-    var detachedRows = 0;
     if (c.childrenEl && c.childrenEl.parentNode) {
-      detachedRows = c.childrenEl.querySelectorAll('.json-row').length;
-      c.rowEl.removeChild(c.childrenEl);
+      c.childrenEl.hidden = true;
     }
-    c.childrenEl = null;
-    c.showMoreEl = null;
-    c.built = 0;
-    c.cap = PER_CONTAINER_CAP;
-    c.occCounts = null;
-    c.renderedRows = 0;
+    // Preserve built/cap/occCounts for resume.
 
     // Drop this container and its descendants from the pending queue.
     for (var i = tree.pending.length - 1; i >= 0; i--) {
@@ -536,16 +828,8 @@
       if (t === c || isDescendant(t.pathKey, c.pathKey)) tree.pending.splice(i, 1);
     }
 
-    // Drop orphaned descendant controllers (their DOM was just removed).
-    tree.controllers = tree.controllers.filter(function (child) {
-      return child === c || !isDescendant(child.pathKey, c.pathKey);
-    });
-    tree.rowsUsed = Math.max(0, tree.rowsUsed - detachedRows);
-    if (tree.rowsUsed < tree.maxRows) {
-      tree.capped = false;
-      if (tree.limitEl) tree.limitEl.remove();
-      tree.limitEl = null;
-    }
+    // P6: GC hidden containers if total DOM rows exceed the cap.
+    gcHiddenContainers(tree);
   }
 
   // Record a manual fold as an override (bounded). If it matches the default we
@@ -584,12 +868,25 @@
       }
       c.cap = c.childCount;
       recordOverride(tree, c, true);
-      if (!c.childrenEl) {
+      if (c.childrenEl && c.childrenEl.hidden) {
+        // P6: unhide preserved children (instant re-expand). Rows are counted
+        // authoritatively by recomputeRowsUsed after the build, so we do not
+        // add here (that would double-count nested rows).
+        c.childrenEl.hidden = false;
+      } else if (!c.childrenEl) {
         c.childrenEl = makeEl(tree.doc, "div", "json-children");
         c.rowEl.appendChild(c.childrenEl);
-        if (c.showMoreEl) { c.childrenEl.appendChild(c.showMoreEl); }
       }
-      if (c.showMoreEl) { c.childrenEl.removeChild(c.showMoreEl); c.showMoreEl = null; }
+      // Remove "Show more" / sentinel for expand-all (we're building everything).
+      if (c.showMoreEl) {
+        if (c.showMoreEl.parentNode) c.showMoreEl.parentNode.removeChild(c.showMoreEl);
+        c.showMoreEl = null;
+      }
+      if (c.sentinelEl) {
+        unobserveSentinel(c.sentinelEl);
+        if (c.sentinelEl.parentNode) c.sentinelEl.parentNode.removeChild(c.sentinelEl);
+        c.sentinelEl = null;
+      }
       if (c.built < c.childCount) queueContainer(tree, c);
     }
     if (tree.controllers.length === 0 || tree.pending.length === 0) {
@@ -605,12 +902,33 @@
       return container.pathKey === "";
     });
     if (!root) return;
-    var focusWasInside = root.childrenEl && root.childrenEl.contains(tree.doc.activeElement);
-    for (var container of tree.controllers) {
-      if (container !== root) recordOverride(tree, container, false);
+    var focusWasInside = tree.rootEl && tree.rootEl.contains(tree.doc.activeElement);
+    // Collapse EVERY container: mark each collapsed and hide its childrenEl so the
+    // preserved-DOM invariant holds uniformly (each container is independently
+    // collapsible, not merely nested inside a hidden ancestor). rowsUsed is
+    // reconciled by recomputeRowsUsed afterwards.
+    for (var i = 0; i < tree.controllers.length; i++) {
+      var c = tree.controllers[i];
+      c.expanded = false;
+      setExpandedAttr(c, false);
+      renderCollapsedLabel(c);
+      if (c.childrenEl) c.childrenEl.hidden = true;
+      // Clear any sentinel / "Show more" affordances that are no longer needed.
+      if (c.sentinelEl) {
+        unobserveSentinel(c.sentinelEl);
+        if (c.sentinelEl.parentNode) c.sentinelEl.parentNode.removeChild(c.sentinelEl);
+        c.sentinelEl = null;
+      }
+      if (c.showMoreEl) {
+        if (c.showMoreEl.parentNode) c.showMoreEl.parentNode.removeChild(c.showMoreEl);
+        c.showMoreEl = null;
+      }
+      recordOverride(tree, c, false);
     }
-    setExpanded(root, false);
     if (focusWasInside) root.toggleEl.focus();
+    recomputeRowsUsed(tree);
+    // P6: GC hidden containers after bulk collapse.
+    gcHiddenContainers(tree);
   }
 
   function cancelPending(tree) {
@@ -622,6 +940,14 @@
   function showRaw(tree) {
     if (!tree.alive) return;
     cancelPending(tree);
+    // P6: unobserve all sentinels before clearing controllers.
+    for (var s = 0; s < tree.controllers.length; s++) {
+      var sc = tree.controllers[s];
+      if (sc.sentinelEl) {
+        unobserveSentinel(sc.sentinelEl);
+        sc.sentinelEl = null;
+      }
+    }
     tree.rawMode = true;
     tree.controllers.length = 0;
     tree.rowsUsed = 0;
@@ -757,6 +1083,14 @@
     if (!tree.alive) return;
     cancelPending(tree);
     tree.alive = false;
+    // P6: unobserve all sentinels.
+    for (var i = 0; i < tree.controllers.length; i++) {
+      var c = tree.controllers[i];
+      if (c.sentinelEl) {
+        unobserveSentinel(c.sentinelEl);
+        c.sentinelEl = null;
+      }
+    }
     // Override store is keyed by document identity and persists across reloads,
     // so we deliberately do NOT clear it here.
     if (tree.rootEl && tree.rootEl.parentNode) tree.host.removeChild(tree.rootEl);
@@ -811,9 +1145,13 @@
     limits: {
       autoOpenDepth: AUTO_OPEN_DEPTH,
       childrenBatch: CHILDREN_BATCH,
-      perContainerCap: PER_CONTAINER_CAP,
+      maxContainerCap: MAX_CONTAINER_CAP,
       maxRows: DEFAULT_MAX_ROWS,
-      maxOverrides: MAX_OVERRIDES
+      maxTotalRows: MAX_TOTAL_ROWS,
+      deepBadgeDepth: DEEP_BADGE_DEPTH,
+      maxOverrides: MAX_OVERRIDES,
+      rowHeightEstimate: ROW_HEIGHT_ESTIMATE,
+      hasIntersectionObserver: HAS_IO
     },
     // Used by the native menu bridge and the markdown branch.
     clearActive: function () {
