@@ -10,9 +10,9 @@ html, body {
 
 .markdown-body {
   box-sizing: border-box;
-  max-width: 980px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 32px 48px 64px;
+  padding: 32px 24px 64px;
 }
 
 /* Mermaid diagram zoom / pan */
