@@ -232,22 +232,6 @@ html, body {
   text-decoration: underline;
 }
 
-/* ---- Phase 2: depth stripes, container type colors, collapsed preview ---- */
-
-/* Subtle background stripe per nesting level so deeper levels stand out.
-   Descendant combinators approximate depth: each extra .json-children adds a
-   level, and the longest matching selector wins, so depth 2/3/4+ get
-   progressively stronger stripes (capped at the deepest rule). */
-.markdown-body .json-tree .json-children .json-children .json-row {
-  background: rgba(128, 128, 128, 0.05);
-}
-.markdown-body .json-tree .json-children .json-children .json-children .json-row {
-  background: rgba(128, 128, 128, 0.10);
-}
-.markdown-body .json-tree .json-children .json-children .json-children .json-children .json-row {
-  background: rgba(128, 128, 128, 0.14);
-}
-
 /* Objects and arrays get distinct bracket colors (the arrow stays neutral via
    its own explicit color, so this does not affect the toggle triangle). */
 .markdown-body .json-tree .json-toggle.json-object {
@@ -375,16 +359,7 @@ html, body {
   .markdown-body .json-tree .json-toggle:hover {
     background: rgba(255, 255, 255, 0.06);
   }
-  /* Dark-theme depth stripes + container type colors */
-  .markdown-body .json-tree .json-children .json-children .json-row {
-    background: rgba(255, 255, 255, 0.04);
-  }
-  .markdown-body .json-tree .json-children .json-children .json-children .json-row {
-    background: rgba(255, 255, 255, 0.08);
-  }
-  .markdown-body .json-tree .json-children .json-children .json-children .json-children .json-row {
-    background: rgba(255, 255, 255, 0.11);
-  }
+  /* Dark-theme container type colors */
   .markdown-body .json-tree .json-toggle.json-object {
     color: #79c0ff;
   }
