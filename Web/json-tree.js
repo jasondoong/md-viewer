@@ -322,11 +322,6 @@
     var closePunct = c.type === "object" ? "}" : "]";
     appendText(btn, doc, openPunct);
     if (!c.expanded) {
-      appendText(btn, doc, " ");
-      var elide = makeEl(doc, "span", "json-elide");
-      appendText(elide, doc, "…");
-      btn.appendChild(elide);
-      appendText(btn, doc, " ");
       var count = makeEl(doc, "span", "json-count");
       var unit = c.type === "object" ? (c.childCount === 1 ? "key" : "keys")
                                     : (c.childCount === 1 ? "item" : "items");

@@ -153,6 +153,85 @@ html, body {
   white-space: pre;
 }
 
+/* ---- Phase 1: tree guides, arrows, indentation ---- */
+
+/* Toggle button: reset browser defaults, add expand/collapse arrow */
+.markdown-body .json-tree .json-toggle {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  display: inline-block;
+}
+.markdown-body .json-tree .json-toggle::before {
+  content: "\25BC"; /* ▼ expanded */
+  display: inline-block;
+  width: 1em;
+  text-align: center;
+  font-size: 0.6em;
+  color: #888;
+  vertical-align: middle;
+}
+.markdown-body .json-tree .json-toggle.json-collapsed::before {
+  content: "\25B6"; /* ▶ collapsed */
+}
+.markdown-body .json-tree .json-toggle:hover {
+  background: rgba(128, 128, 128, 0.08);
+  border-radius: 3px;
+}
+
+/* Children indentation + vertical guide line */
+.markdown-body .json-tree .json-children {
+  padding-left: 1.5em;
+  position: relative;
+}
+.markdown-body .json-tree .json-children::before {
+  content: "";
+  position: absolute;
+  left: 0.5em;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px solid #d0d7de;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Horizontal connector from guide line to each child row */
+.markdown-body .json-tree .json-children > .json-row {
+  position: relative;
+}
+.markdown-body .json-tree .json-children > .json-row::before {
+  content: "";
+  position: absolute;
+  left: -1em;
+  top: 0.65em;
+  width: 1em;
+  height: 0;
+  border-top: 1px solid #d0d7de;
+  opacity: 0.5;
+}
+
+/* "Show more" button inside children */
+.markdown-body .json-tree .json-show-more {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 4px 0;
+  font: inherit;
+  font-size: 80%;
+  color: #0969da;
+  cursor: pointer;
+  text-align: left;
+}
+.markdown-body .json-tree .json-show-more:hover {
+  text-decoration: underline;
+}
+
 /* Semantic JSON token colors (light) */
 .markdown-body .json-tree .json-key {
   color: #005cc5;
@@ -234,6 +313,19 @@ html, body {
   }
   .markdown-body .json-tree .json-toggle:focus-visible {
     outline-color: #58a6ff;
+  }
+  /* Dark-theme guide lines */
+  .markdown-body .json-tree .json-children::before {
+    border-left-color: #30363d;
+  }
+  .markdown-body .json-tree .json-children > .json-row::before {
+    border-top-color: #30363d;
+  }
+  .markdown-body .json-tree .json-toggle:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .markdown-body .json-tree .json-show-more {
+    color: #58a6ff;
   }
   .markdown-body .json-tree .json-toolbar-btn {
     background: #21262d;

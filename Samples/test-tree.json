@@ -1,0 +1,28 @@
+{
+  "name": "test",
+  "version": "1.0.0",
+  "config": {
+    "theme": "dark",
+    "features": {
+      "alpha": true,
+      "beta": false,
+      "nested": {
+        "deep": [1, 2, 3, 4, 5],
+        "items": [
+          {"id": 1, "label": "first"},
+          {"id": 2, "label": "second"},
+          {"id": 3, "label": "third"}
+        ]
+      }
+    },
+    "limits": [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+  },
+  "metadata": {
+    "author": "test",
+    "tags": ["a", "b", "c"],
+    "empty": {},
+    "null_field": null
+  },
+  "large_number": 1234567890123456789,
+  "precision": 0.0000000000000001
+}
