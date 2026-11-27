@@ -40,6 +40,7 @@ struct ContentView: View {
                     Label("Quick Open", systemImage: "magnifyingglass")
                 }
                 .help("Quick Open (⌘P)")
+                .accessibilityIdentifier("quickOpenButton")
                 .disabled(workspace.rootURL == nil)
 
                 // The paste input sheet works on memory-only content, so this entry
@@ -50,6 +51,7 @@ struct ContentView: View {
                     Label("Paste JSON", systemImage: "doc.on.clipboard")
                 }
                 .help("Paste JSON (⇧⌘V)")
+                .accessibilityIdentifier("pasteJSONButton")
             }
         }
         .sheet(isPresented: $workspace.showQuickOpen) {

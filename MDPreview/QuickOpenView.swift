@@ -21,6 +21,7 @@ struct QuickOpenView: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
                 TextField("Go to file…", text: $query)
+                    .accessibilityIdentifier("quickOpenSearch")
                     .textFieldStyle(.plain)
                     .font(.title3)
                     .focused($fieldFocused)
@@ -52,7 +53,6 @@ struct QuickOpenView: View {
                         LazyVStack(spacing: 0) {
                             ForEach(Array(results.enumerated()), id: \.element) { index, url in
                                 row(url, isHighlighted: index == highlighted)
-                                    .id(index)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         highlighted = index
@@ -63,7 +63,8 @@ struct QuickOpenView: View {
                         .padding(6)
                     }
                     .onChange(of: highlighted) { _, newValue in
-                        proxy.scrollTo(newValue)
+                        guard results.indices.contains(newValue) else { return }
+                        proxy.scrollTo(results[newValue])
                     }
                 }
             }

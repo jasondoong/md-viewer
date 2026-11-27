@@ -8,3 +8,6 @@ xcuserdata/
 # Local artifacts
 *.zip
 Claude outputs/
+
+# Swift package build artifacts
+.build/

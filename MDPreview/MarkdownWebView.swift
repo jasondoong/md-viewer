@@ -335,9 +335,10 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
         case Self.appHost:
             fileURL = Bundle.main.url(forResource: url.lastPathComponent, withExtension: nil, subdirectory: "Web")
         case Self.fileHost:
-            let candidate = URL(fileURLWithPath: url.path(percentEncoded: false)).standardizedFileURL
-            if let root = rootURL?.standardizedFileURL, candidate.path.hasPrefix(root.path + "/") {
-                fileURL = candidate
+            let candidate = URL(fileURLWithPath: url.path(percentEncoded: false)).standardizedFileURL.resolvingSymlinksInPath()
+            if let root = rootURL?.standardizedFileURL.resolvingSymlinksInPath() {
+                let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+                fileURL = candidate.path.hasPrefix(prefix) ? candidate : nil
             } else {
                 fileURL = nil
             }

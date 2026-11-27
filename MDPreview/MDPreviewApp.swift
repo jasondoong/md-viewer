@@ -1,6 +1,8 @@
 import SwiftUI
 
+#if !SWIFT_PACKAGE
 @main
+#endif
 struct MDPreviewApp: App {
     static let mainWindowID = "main"
 

@@ -10,12 +10,18 @@
 		A10000000000000000000007 /* Web in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* Web */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+        B10000000000000000000001 = {isa = PBXContainerItemProxy; containerPortal = A10000000000000000000001; proxyType = 1; remoteGlobalIDString = A10000000000000000000008; remoteInfo = MDPreview; };
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+        B10000000000000000000002 /* MDPreviewUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MDPreviewUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000004 /* MDPreview.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MDPreview.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000006 /* Web */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Web; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+        B10000000000000000000003 /* MDPreviewUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = MDPreviewUITests; sourceTree = "<group>"; };
 		A10000000000000000000005 /* MDPreview */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = MDPreview;
@@ -24,6 +30,7 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+        B10000000000000000000007 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A1000000000000000000000A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -38,6 +45,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000005 /* MDPreview */,
+                B10000000000000000000003 /* MDPreviewUITests */,
 				A10000000000000000000006 /* Web */,
 				A10000000000000000000003 /* Products */,
 			);
@@ -47,6 +55,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000004 /* MDPreview.app */,
+                B10000000000000000000002 /* MDPreviewUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -54,6 +63,18 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+        B10000000000000000000004 /* MDPreviewUITests */ = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = B10000000000000000000005;
+            buildPhases = (B10000000000000000000006, B10000000000000000000007, B10000000000000000000008,);
+            buildRules = ();
+            dependencies = (B10000000000000000000009,);
+            fileSystemSynchronizedGroups = (B10000000000000000000003,);
+            name = MDPreviewUITests;
+            productName = MDPreviewUITests;
+            productReference = B10000000000000000000002;
+            productType = "com.apple.product-type.bundle.ui-testing";
+        };
 		A10000000000000000000008 /* MDPreview */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A1000000000000000000000F /* Build configuration list for PBXNativeTarget "MDPreview" */;
@@ -106,11 +127,13 @@
 			projectRoot = "";
 			targets = (
 				A10000000000000000000008 /* MDPreview */,
+                B10000000000000000000004 /* MDPreviewUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+        B10000000000000000000008 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A1000000000000000000000B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -122,6 +145,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+        B10000000000000000000006 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A10000000000000000000009 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -131,7 +155,13 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+        B10000000000000000000009 = {isa = PBXTargetDependency; target = A10000000000000000000008; targetProxy = B10000000000000000000001; };
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+        B1000000000000000000000A = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = com.dakastar.MDPreviewUITests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TEST_TARGET_NAME = MDPreview; }; name = Debug; };
+        B1000000000000000000000B = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = com.dakastar.MDPreviewUITests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TEST_TARGET_NAME = MDPreview; }; name = Release; };
 		A1000000000000000000000D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -244,13 +274,75 @@
 			};
 			name = Release;
 		};
+		B1000000000000000000000C /* UITesting */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = UITesting;
+		};
+		B1000000000000000000000D /* UITesting */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Support/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "MD Preview";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dakastar.MDPreview.UITesting;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = UITesting;
+		};
+        B1000000000000000000000E = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = com.dakastar.MDPreviewUITests; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TEST_TARGET_NAME = MDPreview; }; name = UITesting; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+        B10000000000000000000005 = {isa = XCConfigurationList; buildConfigurations = (B1000000000000000000000A, B1000000000000000000000E, B1000000000000000000000B,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		A1000000000000000000000C /* Build configuration list for PBXProject "MDPreview" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A1000000000000000000000D /* Debug */,
+				A1000000000000000000000D /* Debug */, B1000000000000000000000C,
 				A1000000000000000000000E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
@@ -259,7 +351,7 @@
 		A1000000000000000000000F /* Build configuration list for PBXNativeTarget "MDPreview" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A10000000000000000000010 /* Debug */,
+				A10000000000000000000010 /* Debug */, B1000000000000000000000D,
 				A10000000000000000000011 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
